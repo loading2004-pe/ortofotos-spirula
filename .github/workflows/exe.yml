@@ -31,9 +31,18 @@ jobs:
         with:
           name: OrtofotosSpirula
           path: dist/OrtofotosSpirula.exe
+      - name: Versión
+        id: ver
+        shell: python
+        run: |
+          import os, re
+          v = re.search(r'"(.+)"', open("app_version.py").read()).group(1)
+          open(os.environ["GITHUB_OUTPUT"], "a").write(f"v={v}\n")
       - name: Publicar en Releases
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: exe-${{ steps.ver.outputs.v }}-${{ github.run_number }}
+          name: Ortofotos Spirula ${{ steps.ver.outputs.v }}
+          body: "Descarga OrtofotosSpirula.exe. Este .exe se actualiza solo: cuando hay una versión nueva aparece una ventana con el botón Actualizar."
           files: dist/OrtofotosSpirula.exe
           make_latest: true

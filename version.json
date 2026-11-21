@@ -1,0 +1,15 @@
+{
+ "version": "2026.11.20.2",
+ "fecha": "2026-11-20 21:16",
+ "notas": "Actualizaciones automáticas, detener sin perder, continuar pendientes, reprocesar carpetas",
+ "min_lanzador": 1,
+ "archivos": {
+  "app.py": "da21b143f7177b1207f4df122c36193c0ba032677cf7c1f42818ed2b052bb9cd",
+  "pipeline.py": "82c4675be733b201378b4e8711ff91fd0df78f3ef2760e07332197e14358a880",
+  "render_ortho.py": "25610558c4753526c266ce5b041880d1452f5a27d85b44f922ca5d88cbefaeac",
+  "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
+  "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
+  "updater.py": "bc49b29c87340b32c367aa04e362a5e74d5b2b6bdc9321d8c4287d7e04ba80fd",
+  "app_version.py": "136a35fb9e3c4b43bcfe88c3a9bd57e2b6bbd23110166972598bf4dba7265f66"
+ }
+}

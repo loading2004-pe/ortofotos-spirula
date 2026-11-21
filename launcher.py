@@ -63,6 +63,41 @@ def _log(msg):
         pass
 
 
+def _ask_update(man):
+    """Ventana encima de todo: 'Hay una actualización' [Actualizar] [Más tarde]."""
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+    except Exception:
+        return True
+    res = {"v": False}
+    w = tk.Tk()
+    w.title("Ortofotos Spirula — actualización")
+    w.attributes("-topmost", True)
+    w.resizable(False, False)
+    f = ttk.Frame(w, padding=18)
+    f.pack()
+    ttk.Label(f, text="Hay una actualización disponible", font=("Segoe UI", 13, "bold")).pack(anchor="w")
+    ttk.Label(f, text=f"Versión {man.get('version')}", foreground="#1f5fa8").pack(anchor="w", pady=(4, 0))
+    if man.get("notas"):
+        ttk.Label(f, text=man["notas"], wraplength=380, justify="left").pack(anchor="w", pady=(6, 0))
+    b = ttk.Frame(f)
+    b.pack(fill="x", pady=(14, 0))
+
+    def yes():
+        res["v"] = True
+        w.destroy()
+    ttk.Button(b, text="Actualizar", command=yes).pack(side="right")
+    ttk.Button(b, text="Más tarde", command=w.destroy).pack(side="right", padx=8)
+    w.update_idletasks()
+    x = (w.winfo_screenwidth() - w.winfo_width()) // 2
+    y = (w.winfo_screenheight() - w.winfo_height()) // 3
+    w.geometry(f"+{x}+{y}")
+    w.after(200, lambda: (w.lift(), w.focus_force()))
+    w.mainloop()
+    return res["v"]
+
+
 def _bundle_hint():  # pragma: no cover - nunca se ejecuta; solo para que PyInstaller lo incluya
     import app, pipeline, render_ortho, ply_convert, cli, updater, app_version  # noqa
     import zipfile, hashlib, ssl, urllib.request, urllib.parse, http.client, csv, uuid, glob  # noqa
@@ -88,8 +123,14 @@ def main():
         cfg = {}
     msg = ""
     if "--sin-actualizar" not in sys.argv and cfg.get("actualizar_auto", True):
-        rv, msg = updater.check(DATA_DIR, bundled, cfg.get("url_actualizaciones") or None, timeout=4)
+        src = cfg.get("url_actualizaciones") or None
+        man, msg = updater.available(DATA_DIR, bundled, src, timeout=4)
         _log(msg)
+        if man and _ask_update(man):
+            ok, msg = updater.apply(DATA_DIR, man, src)
+            _log(msg)
+        elif man:
+            msg = f"versión {man.get('version')} disponible (pospuesta)"
     sys.argv = [a for a in sys.argv if a != "--sin-actualizar"]
     code_dir = os.path.join(DATA_DIR, updater.CODE_DIRNAME)
     loc = updater.local_version(code_dir)

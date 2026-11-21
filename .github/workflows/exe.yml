@@ -1,0 +1,39 @@
+name: Generar exe
+on:
+  workflow_dispatch:
+  push:
+    tags: ["exe-*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependencias
+        run: python -m pip install numpy pillow numba llvmlite pyinstaller
+      - name: Compilar
+        run: >
+          python -m PyInstaller --noconfirm --clean --onefile --windowed
+          --name OrtofotosSpirula --icon icono.ico --paths .
+          --hidden-import app --hidden-import render_ortho --hidden-import pipeline
+          --hidden-import ply_convert --hidden-import updater --hidden-import app_version
+          --hidden-import cli --collect-submodules numba --collect-submodules llvmlite
+          launcher.py
+      - name: Prueba rápida
+        run: |
+          python -c "import launcher, app, pipeline, render_ortho, ply_convert, updater; print('imports OK')"
+          dir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OrtofotosSpirula
+          path: dist/OrtofotosSpirula.exe
+      - name: Publicar en Releases
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/OrtofotosSpirula.exe
+          make_latest: true

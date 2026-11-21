@@ -1,15 +1,15 @@
 {
- "version": "2026.11.20.2",
- "fecha": "2026-11-20 21:16",
- "notas": "Actualizaciones automáticas, detener sin perder, continuar pendientes, reprocesar carpetas",
+ "version": "2026.11.20.3",
+ "fecha": "2026-11-20 21:26",
+ "notas": "Aviso de actualización encima de todo con botón 'Actualizar'; se actualiza sin perder el proceso en curso.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "eafe5c6c74df075875b590d8b2316253b4440095b9d44e32b9f115b2a0cc207d",
+  "app.py": "760581fbfbff9806c9a507cb7c9795ee48c4a362bbe86b3e2d47675c01f735a9",
   "pipeline.py": "82c4675be733b201378b4e8711ff91fd0df78f3ef2760e07332197e14358a880",
   "render_ortho.py": "25610558c4753526c266ce5b041880d1452f5a27d85b44f922ca5d88cbefaeac",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
-  "updater.py": "bc49b29c87340b32c367aa04e362a5e74d5b2b6bdc9321d8c4287d7e04ba80fd",
-  "app_version.py": "136a35fb9e3c4b43bcfe88c3a9bd57e2b6bbd23110166972598bf4dba7265f66"
+  "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
+  "app_version.py": "24f1f71818f2c0c417fce0622bcbdfb32e5ba881407ef3caa6724d5a30aafbe4"
  }
 }

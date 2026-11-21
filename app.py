@@ -188,7 +188,7 @@ class App(tk.Tk):
             self.after(600, self._resume_pending)
         elif start_root or os.path.isdir(self.root_var.get()):
             self.after(300, self.do_scan)
-        self.after(2 * 3600 * 1000, self._periodic_update)
+        self.after(60 * 1000, self._periodic_update)
 
     def _btn_press(self, e):
         """Activa el botón al presionar (robusto ante el escalado de pantalla)."""
@@ -1231,7 +1231,7 @@ class App(tk.Tk):
     def _periodic_update(self):
         if self.cfg.get("actualizar_auto", True):
             self._check_update(silent=True)
-        self.after(2 * 3600 * 1000, self._periodic_update)
+        self.after(30 * 60 * 1000, self._periodic_update)
 
     def _check_update(self, silent=False):
         try:
@@ -1240,35 +1240,88 @@ class App(tk.Tk):
             if not silent:
                 messagebox.showerror("Actualizaciones", f"No disponible: {e}")
             return
+        if getattr(self, "_upd_win", None) is not None:
+            return
         if not silent:
             self.upd_lbl.config(text="  Buscando…")
         cur = code_version()
 
         def work():
-            rv, msg = updater.check(DATA_DIR, cur, self.cfg.get("url_actualizaciones") or None)
-            self.after(0, lambda: self._update_done(rv, msg, silent))
+            man, msg = updater.available(DATA_DIR, cur, self.cfg.get("url_actualizaciones") or None)
+            self.after(0, lambda: self._update_found(man, msg, silent))
         threading.Thread(target=work, daemon=True).start()
 
-    def _update_done(self, rv, msg, silent):
+    def _update_found(self, man, msg, silent):
         self.upd_lbl.config(text=f"  Versión {code_version()} · {msg}")
-        self.q.put(("log", f"Actualizaciones: {msg}"))
-        if not rv:
+        if not man:
             if not silent:
                 messagebox.showinfo("Actualizaciones", msg)
             return
+        self._show_update_window(man)
+
+    def _show_update_window(self, man):
+        """Ventana encima de todo con el botón 'Actualizar'."""
+        w = tk.Toplevel(self)
+        self._upd_win = w
+        w.title("Actualización disponible")
+        w.attributes("-topmost", True)
+        w.resizable(False, False)
+        f = ttk.Frame(w, padding=18)
+        f.pack()
+        ttk.Label(f, text="Hay una actualización disponible", font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        ttk.Label(f, text=f"Versión {man.get('version')}  (tienes la {code_version()})",
+                  foreground="#1f5fa8").pack(anchor="w", pady=(4, 0))
+        if man.get("notas"):
+            ttk.Label(f, text=man["notas"], wraplength=400, justify="left").pack(anchor="w", pady=(6, 0))
         busy = self.runner is not None and self.btn_stop["state"] == "normal"
         if busy:
-            r = messagebox.askyesno("Actualización lista",
-                                    f"Versión {rv} descargada.\n\nHay un proceso en marcha. ¿Reiniciar "
-                                    "automáticamente al terminar las etapas en curso? (no se pierde nada "
-                                    "y luego continúa con lo pendiente)")
-            if r:
+            ttk.Label(f, text="Hay un proceso en marcha: se actualizará al terminar la etapa en curso "
+                              "(no se pierde nada) y luego continúa con lo pendiente.",
+                      wraplength=400, foreground="#555").pack(anchor="w", pady=(6, 0))
+        st = ttk.Label(f, text="")
+        st.pack(anchor="w", pady=(6, 0))
+        bar = ttk.Frame(f)
+        bar.pack(fill="x", pady=(12, 0))
+
+        def later():
+            self._upd_win = None
+            w.destroy()
+
+        def go():
+            for c in bar.winfo_children():
+                c.state(["disabled"])
+            st.config(text="Descargando…")
+            import updater
+
+            def work():
+                ok, msg = updater.apply(DATA_DIR, man, self.cfg.get("url_actualizaciones") or None)
+                self.after(0, lambda: done(ok, msg))
+            threading.Thread(target=work, daemon=True).start()
+
+        def done(ok, msg):
+            self.q.put(("log", f"Actualizaciones: {msg}"))
+            if not ok:
+                st.config(text=msg)
+                for c in bar.winfo_children():
+                    c.state(["!disabled"])
+                return
+            self._upd_win = None
+            w.destroy()
+            if self.runner is not None and self.btn_stop["state"] == "normal":
                 self._restart_when_idle = True
                 self.runner.stop_after_current()
                 self.btn_soft.config(state="disabled")
-                self.q.put(("log", "Se reiniciará con la versión nueva al terminar lo actual."))
-        elif messagebox.askyesno("Actualización lista", f"Versión {rv} descargada. ¿Reiniciar ahora?"):
-            self._restart()
+                self.q.put(("log", "Se reiniciará con la versión nueva al terminar la etapa en curso."))
+            else:
+                self._restart()
+        ttk.Button(bar, text="Actualizar", command=go).pack(side="right")
+        ttk.Button(bar, text="Más tarde", command=later).pack(side="right", padx=8)
+        w.protocol("WM_DELETE_WINDOW", later)
+        w.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - w.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - w.winfo_height()) // 3
+        w.geometry(f"+{max(0, x)}+{max(0, y)}")
+        w.lift()
 
     def _restart(self):
         launcher = os.environ.get("ORTO_LAUNCHER") or os.path.join(os.path.dirname(

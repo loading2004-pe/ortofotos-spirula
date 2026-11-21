@@ -17,7 +17,7 @@ import ssl
 import time
 import urllib.request
 
-LAUNCHER_VERSION = 1          # sube solo si cambia el .exe (lanzador)
+LAUNCHER_VERSION = 2          # sube solo si cambia el .exe (lanzador)
 DEFAULT_URL = "https://raw.githubusercontent.com/loading2004-pe/ortofotos-spirula/main/"
 CODE_DIRNAME = "codigo"
 
@@ -80,6 +80,34 @@ def download(src, man, data_dir, log=lambda *_: None):
         os.replace(final, prev)
     os.replace(tmp, final)
     return final
+
+
+def available(data_dir, current_version, src=None, timeout=6):
+    """¿Hay una versión más nueva? Devuelve (manifiesto | None, mensaje). No descarga nada."""
+    src = src or DEFAULT_URL
+    try:
+        man = remote_manifest(src, timeout)
+    except Exception as e:
+        return None, f"sin conexión con el servidor de actualizaciones ({e.__class__.__name__})"
+    rv = man.get("version", "0")
+    loc = local_version(os.path.join(data_dir, CODE_DIRNAME)) or {}
+    current = max(vkey(current_version), vkey(loc.get("version")) if loc else (0,))
+    if vkey(rv) <= current:
+        return None, f"ya tienes la última versión ({rv})"
+    if rv in _bad_versions(data_dir):
+        return None, f"la versión {rv} falló antes en esta PC; se omite"
+    if int(man.get("min_lanzador", 1)) > LAUNCHER_VERSION:
+        return None, f"la versión {rv} necesita un .exe nuevo"
+    return man, f"versión {rv} disponible"
+
+
+def apply(data_dir, man, src=None, log=lambda *_: None):
+    """Descarga la versión del manifiesto. Devuelve (ok, mensaje)."""
+    try:
+        download(src or DEFAULT_URL, man, data_dir, log)
+        return True, f"descargada la versión {man.get('version')}"
+    except Exception as e:
+        return False, f"no se pudo descargar: {e}"
 
 
 def check(data_dir, bundled_version, src=None, timeout=6, log=lambda *_: None):

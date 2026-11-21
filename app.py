@@ -422,6 +422,8 @@ class App(tk.Tk):
             self._reset_job(root, n)
         self.do_scan()
         names = set(p.get("trabajos", [])) | set(p.get("reprocesar", []))
+        if p.get("todos"):
+            names |= {j.name for j in self.jobs}
         rest = [j.name for j in self.jobs if j.name in names and j.status != "ya procesado"]
         if not rest:
             self._clear_pending()

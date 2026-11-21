@@ -1,15 +1,15 @@
 {
- "version": "2026.11.20.3",
- "fecha": "2026-11-20 21:26",
- "notas": "Aviso de actualización encima de todo con botón 'Actualizar'; se actualiza sin perder el proceso en curso.",
+ "version": "2026.11.20.4",
+ "fecha": "2026-11-20 21:35",
+ "notas": "Pestaña '3. Convertir nube' más simple: dos botones (Pasar a CloudCompare/ReCap y Traer de vuelta).",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "760581fbfbff9806c9a507cb7c9795ee48c4a362bbe86b3e2d47675c01f735a9",
+  "app.py": "dc5f8e9b1e8ecb75f246e4b7586df1c4c0b1137090316f8d7bf52805b1ae8ae1",
   "pipeline.py": "82c4675be733b201378b4e8711ff91fd0df78f3ef2760e07332197e14358a880",
   "render_ortho.py": "25610558c4753526c266ce5b041880d1452f5a27d85b44f922ca5d88cbefaeac",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "24f1f71818f2c0c417fce0622bcbdfb32e5ba881407ef3caa6724d5a30aafbe4"
+  "app_version.py": "6c4c70ec5031671decd081035c1ac795d7210e89b1156dd7bee68438b675c154"
  }
 }

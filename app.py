@@ -473,10 +473,17 @@ class App(tk.Tk):
                     self.conv_log.see("end")
                 elif kind == "convfin":
                     self._conv_busy = False
-                    if data:
+                    self.bell()
+                    if isinstance(data, dict):
+                        if data.get("abrir"):
+                            self._conv_last_dir = data["abrir"][0]
+                            open_path(data["abrir"][0])
+                    elif data:
                         self._conv_items = data
                         self.btn_conv_render.state(["!disabled"])
-                    self.bell()
+                        if messagebox.askyesno("Listo", f"{len(data)} modelo(s) de vuelta como .ply.\n\n"
+                                                        "¿Renderizar sus ortofotos ahora?"):
+                            self._conv_render()
                 elif kind == "link":
                     self._on_link_item(*data)
                 elif kind == "linkfin":
@@ -960,129 +967,104 @@ class App(tk.Tk):
 
     # ------------------------------------------- Convertir nube (CloudCompare / ReCap)
     def _build_convert(self, nb):
-        f = ttk.Frame(nb, padding=8)
+        f = ttk.Frame(nb, padding=16)
         nb.add(f, text="3. Convertir nube")
         self._conv_src, self._conv_clouds, self._conv_items = [], [], []
         self._conv_busy = False
+        big = ttk.Style(self)
+        big.configure("Big.TButton", font=("Segoe UI", 11, "bold"), padding=(14, 10))
 
-        a = ttk.LabelFrame(f, text="  A) Splat .ply (Spirula / SuperSplat)  →  nube con color para "
-                                   "CloudCompare / ReCap  ", padding=8)
-        a.pack(fill="x")
-        r1 = ttk.Frame(a)
-        r1.pack(fill="x")
-        ttk.Button(r1, text="Elegir .ply…", command=self._conv_pick_splats).pack(side="left")
-        ttk.Button(r1, text="Elegir carpeta…", command=lambda: self._conv_pick_splats(folder=True)
-                   ).pack(side="left", padx=4)
-        ttk.Button(r1, text="Usar los .ply de las ✗ (ply_para_supersplat)",
-                   command=self._conv_use_exported).pack(side="left")
-        self.conv_src_lbl = ttk.Label(r1, text="  Ningún .ply elegido", foreground="#555")
-        self.conv_src_lbl.pack(side="left", padx=8)
-        r2 = ttk.Frame(a)
-        r2.pack(fill="x", pady=(6, 0))
-        ttk.Label(r2, text="Formatos:").pack(side="left")
+        ttk.Label(f, text="Limpiar un modelo en CloudCompare o ReCap", font=("Segoe UI", 13, "bold")
+                  ).pack(anchor="w")
+        ttk.Label(f, foreground="#444", justify="left", text=(
+            "1.  Pulsa  «Pasar a CloudCompare / ReCap»  y elige el .ply.\n"
+            "2.  Abre la nube que se crea en CloudCompare (.ply) o ReCap (.las), borra lo que sobra y guarda.\n"
+            "     No muevas ni gires la nube; solo borra.\n"
+            "3.  Pulsa  «Traer de vuelta»  y elige el archivo que guardaste. Queda un .ply listo para "
+            "Spirula, con todos sus datos.")).pack(anchor="w", pady=(6, 14))
+
+        row = ttk.Frame(f)
+        row.pack(anchor="w")
+        ttk.Button(row, text="①  Pasar a CloudCompare / ReCap", style="Big.TButton",
+                   command=self._conv_quick_a).pack(side="left")
+        ttk.Button(row, text="②  Traer de vuelta", style="Big.TButton",
+                   command=self._conv_quick_b).pack(side="left", padx=12)
+        self.btn_conv_render = ttk.Button(row, text="Renderizar ortofotos", command=self._conv_render,
+                                          state="disabled")
+        self.btn_conv_render.pack(side="left", padx=(12, 0))
+        ttk.Button(row, text="Abrir carpeta", command=self._conv_open_out).pack(side="left", padx=6)
+
+        # ---- opciones avanzadas (ocultas)
         self.conv_fmt = {k: tk.BooleanVar(value=self.cfg.get("conv_fmt_" + k, d))
                          for k, d in (("ply", True), ("las", True), ("pts", False))}
+        self.conv_hide = tk.BooleanVar(value=self.cfg.get("conv_ocultar", True))
+        self.conv_thr = tk.StringVar(value=str(self.cfg.get("conv_opacidad_min", 0.05)))
+        self.conv_up = tk.BooleanVar(value=self.cfg.get("conv_de_pie", True))
+        self.conv_out_a = tk.StringVar(value="")
+        self.conv_out_b = tk.StringVar(value="")
+        self.conv_to_clean = tk.BooleanVar(value=self.cfg.get("conv_a_limpios", False))
+        self._adv_shown = tk.BooleanVar(value=False)
+        tog = ttk.Checkbutton(f, text="Opciones avanzadas", variable=self._adv_shown,
+                              command=self._conv_toggle_adv)
+        tog.pack(anchor="w", pady=(16, 0))
+        self._conv_tog = tog
+        adv = ttk.Frame(f, padding=(18, 6, 0, 0))
+        self._conv_adv = adv
+        r = ttk.Frame(adv)
+        r.pack(anchor="w")
+        ttk.Label(r, text="Crear:").pack(side="left")
         for k, lab in (("ply", ".ply (CloudCompare)"), ("las", ".las (CloudCompare y ReCap)"),
                        ("pts", ".pts (ReCap)")):
-            ttk.Checkbutton(r2, text=lab, variable=self.conv_fmt[k]).pack(side="left", padx=6)
-        r3 = ttk.Frame(a)
-        r3.pack(fill="x", pady=(6, 0))
-        self.conv_hide = tk.BooleanVar(value=self.cfg.get("conv_ocultar", True))
-        ttk.Checkbutton(r3, text="No exportar splats casi transparentes, opacidad menor a",
+            ttk.Checkbutton(r, text=lab, variable=self.conv_fmt[k]).pack(side="left", padx=6)
+        r = ttk.Frame(adv)
+        r.pack(anchor="w", pady=(4, 0))
+        ttk.Checkbutton(r, text="Quitar puntos casi transparentes (opacidad menor a",
                         variable=self.conv_hide).pack(side="left")
-        self.conv_thr = tk.StringVar(value=str(self.cfg.get("conv_opacidad_min", 0.05)))
-        ttk.Spinbox(r3, from_=0.0, to=0.9, increment=0.01, width=6,
-                    textvariable=self.conv_thr).pack(side="left", padx=4)
-        self.conv_up = tk.BooleanVar(value=self.cfg.get("conv_de_pie", True))
-        ttk.Checkbutton(r3, text="Poner de pie (Z arriba)", variable=self.conv_up).pack(side="left", padx=12)
-        r4 = ttk.Frame(a)
-        r4.pack(fill="x", pady=(6, 0))
-        ttk.Label(r4, text="Guardar en (vacío = <carpeta del .ply>\\nube_para_editar):").pack(side="left")
-        self.conv_out_a = tk.StringVar(value="")
-        ttk.Entry(r4, textvariable=self.conv_out_a).pack(side="left", fill="x", expand=True, padx=4)
-        ttk.Button(r4, text="…", width=3, command=lambda: self.conv_out_a.set(
-            filedialog.askdirectory() or self.conv_out_a.get())).pack(side="left")
-        ttk.Button(r4, text="▶ Convertir a nube", command=self._conv_to_cloud).pack(side="left", padx=6)
+        ttk.Spinbox(r, from_=0.0, to=0.9, increment=0.01, width=5, textvariable=self.conv_thr
+                    ).pack(side="left", padx=2)
+        ttk.Label(r, text=")").pack(side="left")
+        ttk.Checkbutton(r, text="Poner de pie (Z arriba)", variable=self.conv_up).pack(side="left", padx=12)
+        ttk.Checkbutton(adv, text="Al traer de vuelta, copiar también a ply_limpios (lo usa 1. Procesar)",
+                        variable=self.conv_to_clean).pack(anchor="w", pady=(4, 0))
+        for lab, var in (("Carpeta para las nubes (vacío = junto al .ply, en nube_para_editar):", self.conv_out_a),
+                         ("Carpeta para los .ply de vuelta (vacío = junto a la nube, en ply_desde_nube):",
+                          self.conv_out_b)):
+            r = ttk.Frame(adv)
+            r.pack(fill="x", pady=(4, 0))
+            ttk.Label(r, text=lab).pack(side="left")
+            ttk.Entry(r, textvariable=var, width=50).pack(side="left", fill="x", expand=True, padx=4)
+            ttk.Button(r, text="…", width=3, command=lambda v=var: v.set(
+                filedialog.askdirectory() or v.get())).pack(side="left")
 
-        b = ttk.LabelFrame(f, text="  B) Nube editada en CloudCompare / ReCap  →  splat .ply para "
-                                   "Spirula y Ortofotos (con todos sus datos)  ", padding=8)
-        b.pack(fill="x", pady=(10, 0))
-        s1 = ttk.Frame(b)
-        s1.pack(fill="x")
-        ttk.Button(s1, text="Elegir nubes editadas…", command=self._conv_pick_clouds).pack(side="left")
-        ttk.Button(s1, text="Elegir carpeta…", command=lambda: self._conv_pick_clouds(folder=True)
-                   ).pack(side="left", padx=4)
-        self.conv_cl_lbl = ttk.Label(s1, text="  Ninguna nube elegida (.ply, .las, .pts, .xyz, .txt, .e57)",
-                                     foreground="#555")
-        self.conv_cl_lbl.pack(side="left", padx=8)
-        s2 = ttk.Frame(b)
-        s2.pack(fill="x", pady=(6, 0))
-        ttk.Label(s2, text="Guardar en (vacío = <carpeta de la nube>\\ply_desde_nube):").pack(side="left")
-        self.conv_out_b = tk.StringVar(value="")
-        ttk.Entry(s2, textvariable=self.conv_out_b).pack(side="left", fill="x", expand=True, padx=4)
-        ttk.Button(s2, text="…", width=3, command=lambda: self.conv_out_b.set(
-            filedialog.askdirectory() or self.conv_out_b.get())).pack(side="left")
-        s3 = ttk.Frame(b)
-        s3.pack(fill="x", pady=(6, 0))
-        self.conv_to_clean = tk.BooleanVar(value=self.cfg.get("conv_a_limpios", False))
-        ttk.Checkbutton(s3, text="Copiar también a ply_limpios (los usa 1. Procesar al renderizar)",
-                        variable=self.conv_to_clean).pack(side="left")
-        ttk.Button(s3, text="▶ Convertir a splat .ply", command=self._conv_to_splat).pack(side="left", padx=10)
-        self.btn_conv_render = ttk.Button(s3, text="Renderizar ortofotos de estos",
-                                          command=self._conv_render, state="disabled")
-        self.btn_conv_render.pack(side="left")
-        ttk.Button(s3, text="Abrir carpeta de salida", command=self._conv_open_out).pack(side="left", padx=6)
+        self.conv_log = tk.Text(f, height=10, font=("Consolas", 10))
+        self.conv_log.pack(fill="both", expand=True, pady=(12, 0))
 
-        ttk.Label(f, foreground="#555", wraplength=1100, justify="left", text=(
-            "Cómo editar: en CloudCompare abre el .ply o .las, borra/recorta con las tijeras y guarda "
-            "como .ply o .las (no muevas, gires ni escales la nube). En ReCap importa el .las o .pts, "
-            "borra lo que sobra y exporta como .pts. Al volver (B) cada punto que quedó recupera su "
-            "splat original con escala, rotación, opacidad y color completos, así que el render sale "
-            "igual que en SuperSplat. El archivo .splatref.json junto a la nube indica de qué splat "
-            "viene: no lo borres.")).pack(anchor="w", pady=(8, 4))
-        self.conv_log = tk.Text(f, height=12, font=("Consolas", 10))
-        self.conv_log.pack(fill="both", expand=True)
+    def _conv_toggle_adv(self):
+        if self._adv_shown.get():
+            self._conv_adv.pack(anchor="w", fill="x", after=self._conv_tog)
+        else:
+            self._conv_adv.pack_forget()
+
+    def _conv_quick_a(self):
+        files = list(filedialog.askopenfilenames(title="Elige el .ply (de Spirula o SuperSplat)",
+                                                 filetypes=[("PLY", "*.ply")]))
+        if files:
+            self._conv_src = files
+            self._conv_to_cloud()
+
+    def _conv_quick_b(self):
+        import ply_convert as pc
+        files = list(filedialog.askopenfilenames(
+            title="Elige la nube que guardaste en CloudCompare / ReCap",
+            filetypes=[("Nubes de puntos", "*.ply *.las *.pts *.xyz *.txt *.asc *.csv *.e57"),
+                       ("Todos", "*.*")]))
+        files = [x for x in files if x.lower().endswith(pc.CLOUD_EXT)]
+        if files:
+            self._conv_clouds = files
+            self._conv_to_splat()
 
     def _conv_say(self, msg):
         self.q.put(("conv", f"{time.strftime('%H:%M:%S')} {msg}"))
-
-    def _conv_pick_splats(self, folder=False):
-        if folder:
-            d = filedialog.askdirectory(title="Carpeta con splats .ply")
-            files = [p for p, _n in pl.list_plys(d, recursive=False)] if d else []
-        else:
-            files = list(filedialog.askopenfilenames(title="Splats .ply (Spirula / SuperSplat)",
-                                                     filetypes=[("PLY", "*.ply")]))
-        if files:
-            self._conv_src = files
-            self.conv_src_lbl.config(text=f"  {len(files)} .ply: " + ", ".join(
-                os.path.basename(x) for x in files[:4]) + (" …" if len(files) > 4 else ""))
-
-    def _conv_use_exported(self):
-        exp, _c = pl.side_dirs(self.cfg, self.root_var.get())
-        files = [p for p, _n in pl.list_plys(exp, recursive=False)] if os.path.isdir(exp) else []
-        if not files:
-            messagebox.showinfo("Convertir", f"No hay .ply en:\n{exp}\n\nUsa primero "
-                                             "'1) Exportar .ply de las ✗' en 2. Revisar.")
-            return
-        self._conv_src = files
-        self.conv_src_lbl.config(text=f"  {len(files)} .ply de ply_para_supersplat")
-
-    def _conv_pick_clouds(self, folder=False):
-        import ply_convert as pc
-        if folder:
-            d = filedialog.askdirectory(title="Carpeta con las nubes editadas")
-            files = sorted(os.path.join(d, x) for x in os.listdir(d)
-                           if x.lower().endswith(pc.CLOUD_EXT)) if d else []
-        else:
-            files = list(filedialog.askopenfilenames(
-                title="Nubes editadas (CloudCompare / ReCap)",
-                filetypes=[("Nubes de puntos", "*.ply *.las *.pts *.xyz *.txt *.asc *.csv *.e57"),
-                           ("Todos", "*.*")]))
-        if files:
-            self._conv_clouds = files
-            self.conv_cl_lbl.config(text=f"  {len(files)} nube(s): " + ", ".join(
-                os.path.basename(x) for x in files[:4]) + (" …" if len(files) > 4 else ""))
 
     def _conv_save_opts(self):
         for k, v in self.conv_fmt.items():
@@ -1132,7 +1114,7 @@ class App(tk.Tk):
                     self._conv_say(f"ERROR {os.path.basename(src)}: {e}")
             for o in outs:
                 self._conv_say(f"Listo → {o}")
-            self.q.put(("convfin", None))
+            self.q.put(("convfin", {"abrir": sorted(outs)}))
         threading.Thread(target=work, daemon=True).start()
 
     def _conv_to_splat(self):
@@ -1216,7 +1198,9 @@ class App(tk.Tk):
         self._start_linked(list(self._conv_items), folder)
 
     def _conv_open_out(self):
-        if self._conv_items:
+        if getattr(self, "_conv_last_dir", None) and not self._conv_items:
+            open_path(self._conv_last_dir)
+        elif self._conv_items:
             open_path(os.path.dirname(self._conv_items[0][0]))
         elif self._conv_clouds:
             d = self.conv_out_b.get().strip() or os.path.join(os.path.dirname(self._conv_clouds[0]),

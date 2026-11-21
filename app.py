@@ -1448,4 +1448,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if not FROZEN and not os.environ.get("ORTO_LAUNCHER") and os.path.isfile(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "launcher.py")):
+        # abierto directamente (acceso directo antiguo): pasar por el lanzador para actualizarse
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import launcher
+        launcher.main()
+    else:
+        main()

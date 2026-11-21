@@ -4,7 +4,7 @@
  "notas": "Actualizaciones automáticas, detener sin perder, continuar pendientes, reprocesar carpetas",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "6be4f2ca1146ebbe9dbc261161bd5a4a06b2f04d432c651361254acc3fca08ec",
+  "app.py": "eafe5c6c74df075875b590d8b2316253b4440095b9d44e32b9f115b2a0cc207d",
   "pipeline.py": "82c4675be733b201378b4e8711ff91fd0df78f3ef2760e07332197e14358a880",
   "render_ortho.py": "25610558c4753526c266ce5b041880d1452f5a27d85b44f922ca5d88cbefaeac",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",

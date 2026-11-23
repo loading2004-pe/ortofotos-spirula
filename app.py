@@ -924,7 +924,7 @@ class App(tk.Tk):
             parts = [(e["ply"], n, e.get("rol", "pared")) for n, e in sorted(man.items())
                      if e.get("ambiente") == entry["ambiente"] and e.get("ply") and os.path.isfile(e["ply"])]
             if len(parts) >= 2:
-                AmbienteViewer(self, entry["ambiente"], parts, d)
+                AmbienteViewer(self, entry["ambiente"], parts, d, sel=name)
                 return
         root = self.root_var.get()
         wd = pl.work_dir(self.cfg, root, name) if root else None
@@ -2329,7 +2329,7 @@ class AmbienteViewer(tk.Toplevel):
     cara; se ve en grande y en vivo, y se corrige sola sin tocar las demás."""
     SLIDERS = CubeViewer.SLIDERS
 
-    def __init__(self, app, key, parts, results_dir):
+    def __init__(self, app, key, parts, results_dir, sel=None):
         super().__init__(app)
         self.app, self.key, self.parts, self.results = app, key, parts, results_dir
         self.title(f"Ambiente por partes — {key}")
@@ -2344,7 +2344,8 @@ class AmbienteViewer(tk.Toplevel):
         self.ajustes = {k: v for k, v in self.ajustes.items() if v}
         self.names = [n for _p, n, _r in parts]
         self.roles = {n: r for _p, n, r in parts}
-        self.sel = self.names[0]
+        self.rots = {n: int(man.get(n, {}).get("rot", 0)) % 360 for n in self.names}
+        self.sel = sel if sel in self.names else self.names[0]
         self.st = self.pm = None
         self._busy = self._dirty = self._sliding = False
         self._slide_after = self._thumb_after = None
@@ -2460,22 +2461,47 @@ class AmbienteViewer(tk.Toplevel):
         self._gen += 1
         gen, n = self._gen, self.sel
         cam, clip = self._cam(n, self.ajustes.get(n))
-        cap = 700 if self._sliding else 1600
+        sliding = self._sliding
+        cap = 800 if sliding else 2000
         fw, fh = self.FW, self.FH
+        rot = self.rots.get(n, 0)
+        if rot in (90, 270):
+            fw, fh = fh, fw
 
         def work():
             import render_ortho as ro
-            du, dv = cam.u_range[1] - cam.u_range[0], cam.v_range[1] - cam.v_range[0]
-            ext = max(du, dv)
-            ls = int(max(fw * ext / du if du / dv > fw / fh else fh * ext / dv, 64))
-            im = ro.render(self.pm[n], cam, min(ls, cap), clip / max(ext, 1e-9), background=(34, 34, 34))
-            self.after(0, lambda: self._done_live(gen, im))
+            try:
+                du, dv = cam.u_range[1] - cam.u_range[0], cam.v_range[1] - cam.v_range[0]
+                ext = max(du, dv)
+                ls = int(max(fw * ext / du if du / dv > fw / fh else fh * ext / dv, 64))
+                fcl = clip / max(ext, 1e-9)
+                # moviendo: muestra liviana (rápida); quieto: el modelo COMPLETO, igual que el render final
+                im = ro.render(self.pm[n], cam, min(ls, 700), fcl, background=(34, 34, 34))
+                self.after(0, lambda: self._done_live(gen, self._turn(n, im), final=sliding))
+                if not sliding:
+                    im = ro.render(self.st["models"][n], cam, min(ls, cap), fcl, background=(34, 34, 34))
+                    self.after(0, lambda: self._done_live(gen, self._turn(n, im)))
+            except Exception as e:
+                msg = f"No pude dibujar «{n}»: {e}"
+                self.after(0, lambda: (self.status.config(text=msg), self._done_live(-1, None)))
         threading.Thread(target=work, daemon=True).start()
 
-    def _done_live(self, gen, im):
+    def _turn(self, n, im):
+        from PIL import Image
+        r = self.rots.get(n, 0)
+        if r == 90:
+            return im.transpose(Image.ROTATE_270)
+        if r == 180:
+            return im.transpose(Image.ROTATE_180)
+        if r == 270:
+            return im.transpose(Image.ROTATE_90)
+        return im
+
+    def _done_live(self, gen, im, final=True):
         from PIL import ImageTk
-        self._busy = False
-        if gen == self._gen:
+        if final:
+            self._busy = False
+        if gen == self._gen and im is not None:
             cv = self.face_cv
             cv.delete("all")
             W, H = int(cv.winfo_width() or self.FW), int(cv.winfo_height() or self.FH)
@@ -2490,7 +2516,7 @@ class AmbienteViewer(tk.Toplevel):
             for i in range(1, 8):
                 y = y0 + im.size[1] * i / 8
                 cv.create_line(x0, y, x0 + im.size[0], y, fill="#9e9e9e", stipple="gray25")
-        if self._dirty:
+        if final and self._dirty:
             self._kick()
 
     def _thumbs(self):
@@ -2503,7 +2529,11 @@ class AmbienteViewer(tk.Toplevel):
             out = {}
             for n, (cam, clip) in cams.items():
                 ext = max(cam.u_range[1] - cam.u_range[0], cam.v_range[1] - cam.v_range[0])
-                out[n] = ro.render(self.pm[n], cam, 150, clip / max(ext, 1e-9), background=(34, 34, 34))
+                try:
+                    out[n] = self._turn(n, ro.render(self.pm[n], cam, 220, clip / max(ext, 1e-9),
+                                                     background=(34, 34, 34)))
+                except Exception:
+                    pass
             self.after(0, lambda: self._thumbs_show(out))
         threading.Thread(target=work, daemon=True).start()
 

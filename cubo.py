@@ -882,7 +882,7 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None):
         try:
             ext0 = max(u1 - u0, v1 - v0)
             pmod = preview_model(models[name], 300_000)
-            fcl = (0.04 * size) / max(ext0, 1e-9)
+            fcl = (0.04 * size) / max(ext0, 1e-9)     # enderezar SOLO con la pared (sin muebles)
             prev = render(pmod, cam, 1000, fcl)
             ang = wide_tilt(prev)            # hasta ±45°: líneas dominantes a horizontal/vertical
             if abs(ang) > 0.3:
@@ -893,7 +893,11 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None):
                 cam = rotate_camera(cam, ang)
         except Exception:
             pass
-        built[name] = (cam, 0.04 * size)
+        # profundidad: TODO lo que el recorte trae delante de su plano (muebles, columnas…);
+        # el recorte ya lo eligió el usuario, no se corta nada de él
+        dep = (P - cam.origin) @ cam.normal
+        clip_d = max(0.04 * size, float(np.percentile(dep, 99.7)) * 1.02 + 0.01 * size)
+        built[name] = (cam, clip_d)
     return {"models": models, "cams": built, "roles": roles, "malos": bad}
 
 

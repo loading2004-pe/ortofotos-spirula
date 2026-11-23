@@ -1060,26 +1060,29 @@ class App(tk.Tk):
         ttk.Label(f, text="Limpiar un modelo en CloudCompare o ReCap", font=("Segoe UI", 13, "bold")
                   ).pack(anchor="w")
         ttk.Label(f, foreground="#444", justify="left", text=(
-            "1.  Pulsa  «Pasar a CloudCompare / ReCap»  y elige el .ply.\n"
-            "2.  Abre la nube que se crea en CloudCompare (.ply) o ReCap (.las), borra lo que sobra y guarda.\n"
+            "1.  Elige a qué programa lo pasas y selecciona el .ply.\n"
+            "2.  CloudCompare: abre el .ply, borra lo que sobra y guárdalo (.ply o .las).\n"
+            "     ReCap: importa el .pts, borra lo que sobra y expórtalo como .pts.\n"
             "     No muevas ni gires la nube; solo borra.\n"
-            "3.  Pulsa  «Traer de vuelta»  y elige el archivo que guardaste. Queda un .ply listo para "
-            "Spirula, con todos sus datos.")).pack(anchor="w", pady=(6, 14))
+            "3.  Pulsa  «Traer de vuelta a .ply»  y elige lo que guardaste. La app reconoce sola de qué "
+            "programa viene y busca el modelo original: queda un .ply listo para Spirula, con todos sus datos.")
+                  ).pack(anchor="w", pady=(6, 14))
 
         row = ttk.Frame(f)
         row.pack(anchor="w")
-        ttk.Button(row, text="①  Pasar a CloudCompare / ReCap", style="Big.TButton",
-                   command=self._conv_quick_a).pack(side="left")
-        ttk.Button(row, text="②  Traer de vuelta", style="Big.TButton",
-                   command=self._conv_quick_b).pack(side="left", padx=12)
+        ttk.Button(row, text="①  A CloudCompare  (.ply)", style="Big.TButton",
+                   command=lambda: self._conv_quick_a(("ply",))).pack(side="left")
+        ttk.Button(row, text="①  A ReCap  (.pts)", style="Big.TButton",
+                   command=lambda: self._conv_quick_a(("pts",))).pack(side="left", padx=(8, 0))
+        ttk.Button(row, text="②  Traer de vuelta a .ply", style="Big.TButton",
+                   command=self._conv_quick_b).pack(side="left", padx=(24, 0))
         self.btn_conv_render = ttk.Button(row, text="Renderizar ortofotos", command=self._conv_render,
                                           state="disabled")
         self.btn_conv_render.pack(side="left", padx=(12, 0))
         ttk.Button(row, text="Abrir carpeta", command=self._conv_open_out).pack(side="left", padx=6)
 
         # ---- opciones avanzadas (ocultas)
-        self.conv_fmt = {k: tk.BooleanVar(value=self.cfg.get("conv_fmt_" + k, d))
-                         for k, d in (("ply", True), ("las", True), ("pts", False))}
+        self.conv_fmt = {"las": tk.BooleanVar(value=False)}
         self.conv_hide = tk.BooleanVar(value=self.cfg.get("conv_ocultar", True))
         self.conv_thr = tk.StringVar(value=str(self.cfg.get("conv_opacidad_min", 0.05)))
         self.conv_up = tk.BooleanVar(value=self.cfg.get("conv_de_pie", True))
@@ -1095,10 +1098,8 @@ class App(tk.Tk):
         self._conv_adv = adv
         r = ttk.Frame(adv)
         r.pack(anchor="w")
-        ttk.Label(r, text="Crear:").pack(side="left")
-        for k, lab in (("ply", ".ply (CloudCompare)"), ("las", ".las (CloudCompare y ReCap)"),
-                       ("pts", ".pts (ReCap)")):
-            ttk.Checkbutton(r, text=lab, variable=self.conv_fmt[k]).pack(side="left", padx=6)
+        ttk.Checkbutton(r, text="Crear también .las (lo abren CloudCompare y ReCap)",
+                        variable=self.conv_fmt["las"]).pack(side="left")
         r = ttk.Frame(adv)
         r.pack(anchor="w", pady=(4, 0))
         ttk.Checkbutton(r, text="Quitar puntos casi transparentes (opacidad menor a",
@@ -1128,12 +1129,15 @@ class App(tk.Tk):
         else:
             self._conv_adv.pack_forget()
 
-    def _conv_quick_a(self):
-        files = list(filedialog.askopenfilenames(title="Elige el .ply (de Spirula o SuperSplat)",
+    def _conv_quick_a(self, fmts):
+        prog = "CloudCompare" if "ply" in fmts else "ReCap"
+        files = list(filedialog.askopenfilenames(title=f"Elige el .ply para pasar a {prog}",
                                                  filetypes=[("PLY", "*.ply")]))
         if files:
             self._conv_src = files
-            self._conv_to_cloud()
+            if self.conv_fmt["las"].get():
+                fmts = tuple(fmts) + ("las",)
+            self._conv_to_cloud(fmts)
 
     def _conv_quick_b(self):
         import ply_convert as pc
@@ -1150,8 +1154,6 @@ class App(tk.Tk):
         self.q.put(("conv", f"{time.strftime('%H:%M:%S')} {msg}"))
 
     def _conv_save_opts(self):
-        for k, v in self.conv_fmt.items():
-            self.cfg["conv_fmt_" + k] = bool(v.get())
         self.cfg["conv_ocultar"] = bool(self.conv_hide.get())
         self.cfg["conv_de_pie"] = bool(self.conv_up.get())
         self.cfg["conv_a_limpios"] = bool(self.conv_to_clean.get())
@@ -1161,17 +1163,13 @@ class App(tk.Tk):
             pass
         pl.save_config(CONFIG_PATH, self.cfg)
 
-    def _conv_to_cloud(self):
+    def _conv_to_cloud(self, fmts=("ply",)):
         import ply_convert as pc
         if self._conv_busy:
             messagebox.showinfo("Convertir", "Ya hay una conversión en marcha.")
             return
         if not self._conv_src:
             messagebox.showinfo("Convertir", "Primero elige los splats .ply.")
-            return
-        fmts = tuple(k for k, v in self.conv_fmt.items() if v.get())
-        if not fmts:
-            messagebox.showinfo("Convertir", "Marca al menos un formato.")
             return
         self._conv_save_opts()
         thr = float(self.cfg.get("conv_opacidad_min", 0.05)) if self.conv_hide.get() else 0.0

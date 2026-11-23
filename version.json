@@ -1,16 +1,16 @@
 {
- "version": "2026.11.23.7",
- "fecha": "2026-11-23 10:26",
- "notas": "Nuevo selector 'Tipo' en 1. Procesar y 2. Revisar: Normal (puertas y ventanas, por defecto), Exterior 6 caras, Interior 6 caras o Detectar solo. Las puertas y ventanas ya no se convierten en 6 caras por su cuenta.",
+ "version": "2026.11.23.8",
+ "fecha": "2026-11-23 10:31",
+ "notas": "3. Convertir nube: botones separados 'A CloudCompare (.ply)' y 'A ReCap (.pts)'; 'Traer de vuelta a .ply' reconoce solo el formato y el modelo original.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "d9c8724a956362c18a135092b072ffb19d101f8dbf19f72756e87dcb54545c97",
+  "app.py": "23a01f43915d1aa94cf506dbd6fa8accf635ce3eac841b218a400230cf641cf1",
   "pipeline.py": "1ab5ccecc3e880c125a1c06891315d20012132fb4b3f4bebae8797f4f49cb467",
   "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "5081f1708b759daace4383222651439e708c203a3ebd7dee32dd952d00f4ba2c",
+  "app_version.py": "f4ca3cdde7403e1a3cc30a180a27100d56c26e99ca557b734e31c2de15dcc873",
   "cubo.py": "c7b80b5c3db66194ebe85ff515f1192d4a950221b692293cccc076075cb83700"
  }
 }

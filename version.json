@@ -1,16 +1,16 @@
 {
- "version": "2026.11.23.6",
- "fecha": "2026-11-23 10:08",
- "notas": "Alinear 6 caras: ventana grande, vista en vivo de la cara elegida (se actualiza mientras mueves), barra de progreso al renderizar y controles simplificados.",
+ "version": "2026.11.23.7",
+ "fecha": "2026-11-23 10:26",
+ "notas": "Nuevo selector 'Tipo' en 1. Procesar y 2. Revisar: Normal (puertas y ventanas, por defecto), Exterior 6 caras, Interior 6 caras o Detectar solo. Las puertas y ventanas ya no se convierten en 6 caras por su cuenta.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "de074cbbe5f0cd838bc4d2505603c42fb1607bc8252d0351f0d0011c2bc06bf4",
-  "pipeline.py": "239b6870dfcd67eb08558c968c039c4466563eab0f288b18fc23e5b4c3229c3b",
+  "app.py": "d9c8724a956362c18a135092b072ffb19d101f8dbf19f72756e87dcb54545c97",
+  "pipeline.py": "1ab5ccecc3e880c125a1c06891315d20012132fb4b3f4bebae8797f4f49cb467",
   "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "9d34b8e29301b0bcbb23121e8d468078fdc0e8eb61b34cb536ddd75a507ce33b",
+  "app_version.py": "5081f1708b759daace4383222651439e708c203a3ebd7dee32dd952d00f4ba2c",
   "cubo.py": "c7b80b5c3db66194ebe85ff515f1192d4a950221b692293cccc076075cb83700"
  }
 }

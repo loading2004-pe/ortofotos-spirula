@@ -54,7 +54,8 @@ DEFAULT_CONFIG = {
     "nombre_minusculas": True,
     "min_videos": 2,
     "min_fotos": 8,
-    "render_detectar_cubo": True,   # interiores/exteriores de 6 caras: una ortofoto por cara                 # fotos mínimas para procesar una carpeta solo con fotos
+    "render_detectar_cubo": True,   # (modo "auto") detectar interiores/exteriores de 6 caras
+    "modo_render": "normal",        # normal (puertas/ventanas) | exterior | interior | auto                 # fotos mínimas para procesar una carpeta solo con fotos
     "entrenar_cache_ram": True,     # --cache-images cpu si caben en RAM (no cambia el resultado)
     "url_actualizaciones": "",      # vacío = servidor por defecto
     "actualizar_auto": True,
@@ -732,6 +733,12 @@ def render_auto(ply, out_png, name, cfg, wd=None, cams=None, ups=None, workspace
             pass
     conf = dict(conf if conf is not None else (cubo.load_config(wd) if wd else {}))
     tipo = conf.get("tipo", "auto")
+    if tipo == "auto":      # sin elección propia de la carpeta: manda el tipo elegido en la app
+        modo = cfg.get("modo_render", "normal")
+        if modo in ("interior", "exterior"):
+            tipo = modo
+        elif modo == "normal":
+            tipo = "fachada"
     bg = tuple(cfg.get("render_fondo_color", (0, 0, 0)))
     an = None
     if conf.get("manual") and tipo in ("interior", "exterior"):

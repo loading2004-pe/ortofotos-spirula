@@ -227,6 +227,7 @@ class App(tk.Tk):
         ttk.Entry(top, textvariable=self.root_var).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(top, text="Elegir…", command=self._pick_root).pack(side="left")
         ttk.Button(top, text="Escanear", command=self.do_scan).pack(side="left", padx=4)
+        self._modo_widget(top)
         self.btn_run = ttk.Button(top, text="▶ Procesar", command=self.do_run)
         self.btn_run.pack(side="left")
         self.btn_soft = ttk.Button(top, text="⏸ Detener al terminar lo actual",
@@ -526,6 +527,7 @@ class App(tk.Tk):
                    command=self._review_default).pack(side="left", padx=4)
         ttk.Button(top, text="Abrir carpeta", command=lambda: open_path(self._results_dir())
                    if os.path.isdir(self._results_dir()) else None).pack(side="left")
+        self._modo_widget(top)
         ttk.Label(top, text="   Calidad del render:").pack(side="left")
         self.calidad_var = tk.StringVar(value=self._calidad_label(self.cfg["render_lado_largo_px"]))
         cbq = ttk.Combobox(top, textvariable=self.calidad_var, state="readonly", width=24,
@@ -812,6 +814,27 @@ class App(tk.Tk):
                              if self._link_done < self._link_total
                              else f"Listo: {self._link_total} ortofoto(s) · última: {name} {det}")
         self.q.put(("log", f"{time.strftime('%H:%M:%S')} {name}: {st} {det}"))
+
+    MODOS = (("normal", "Normal (puertas y ventanas)"), ("exterior", "Exterior · 6 caras"),
+             ("interior", "Interior · 6 caras"), ("auto", "Detectar solo"))
+
+    def _modo_widget(self, parent):
+        """Selector del tipo de render (el mismo en 1. Procesar y 2. Revisar)."""
+        if not hasattr(self, "modo_var"):
+            lab = dict(self.MODOS).get(self.cfg.get("modo_render", "normal"), self.MODOS[0][1])
+            self.modo_var = tk.StringVar(value=lab)
+        ttk.Label(parent, text="  Tipo:").pack(side="left")
+        cb = ttk.Combobox(parent, textvariable=self.modo_var, state="readonly", width=26,
+                          values=[m[1] for m in self.MODOS])
+        cb.pack(side="left", padx=(2, 6))
+        cb.bind("<<ComboboxSelected>>", self._set_modo)
+
+    def _set_modo(self, _e=None):
+        inv = {v: k for k, v in self.MODOS}
+        self.cfg["modo_render"] = inv.get(self.modo_var.get(), "normal")
+        pl.save_config(CONFIG_PATH, self.cfg)
+        self.q.put(("log", f"Tipo de render: {self.modo_var.get()} (se aplica a los próximos renders; "
+                           "las carpetas ajustadas en el visor 6 caras conservan su elección)"))
 
     def _faces_dir_for(self, p):
         import cubo
@@ -1539,7 +1562,7 @@ class CubeViewer(tk.Toplevel):
     la gira). Centro: la cara elegida en grande con cuadrícula. Derecha: controles de esa cara."""
     COLORS = {"Norte": "#ff5252", "Este": "#ffd740", "Sur": "#69f0ae", "Oeste": "#40c4ff",
               "Techo": "#e0e0e0", "Suelo": "#bcaaa4"}
-    TIPOS = (("auto", "Auto"), ("fachada", "Fachada"), ("interior", "Interior"), ("exterior", "Exterior"))
+    TIPOS = (("auto", "Detectar"), ("fachada", "Normal"), ("interior", "Interior"), ("exterior", "Exterior"))
     SLIDERS = (("giro", "Girar", -45, 45, "°"), ("incl", "Inclinar", -30, 30, "°"),
                ("rot", "Enderezar", -20, 20, "°"), ("mover", "Mover plano", -15, 15, "%"),
                ("ampliar", "Encuadre", -40, 60, "%"))
@@ -2139,6 +2162,8 @@ class CubeViewer(tk.Toplevel):
             c["span"] = span
         if self.adv_on.get() and self.cur:
             c["manual"] = {k: self.cur[k] for k in ("up", "d0", "d1", "caja")}
+        if c["tipo"] == "auto" and self.an is not None:
+            c["tipo"] = self.an["tipo_auto"]          # lo detectado en el visor queda fijo
         if c["tipo"] in ("auto", "fachada") and (self.ajustes or self.adv_on.get()):
             c["tipo"] = self._cube_tipo()
         return c

@@ -728,7 +728,31 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
                 any(man.get(m, {}).get("ambiente") == e["ambiente"] for m in names):
             items.append((e["ply"], n))
             names.add(n)
-    amb, items = cubo.find_ambientes(items)
+    import render_ortho as ro
+    cache = {}
+
+    def _read(p):
+        m = cache.pop(p, None)
+        return m if m is not None else ro.read_splat_ply(p)
+
+    def _geo(parts):        # reconoce el ambiente por la forma de los recortes (cualquier nombre)
+        pts, keep = {}, {}
+        for p_, n, _r in parts:
+            try:
+                if os.path.getsize(p_) < 1024:
+                    continue
+                m = ro.read_splat_ply(p_)
+            except Exception:
+                continue
+            keep[p_] = m
+            pts[n] = cubo._opaque_pts(m, 80_000)
+        g = cubo.geo_roles(pts, {n: r for _p, n, r in parts})
+        if g:
+            cache.update(keep)          # se reutilizan al renderizar (no se vuelven a leer)
+            return g["roles"]
+        return None
+
+    amb, items = cubo.find_ambientes(items, geo=_geo)
     for key, parts in amb.items():
         if cancel is not None and cancel.is_set():
             break
@@ -746,7 +770,7 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
             infos = cubo.render_ambiente(parts, out_dir, long_side=int(cfg["render_lado_largo_px"]),
                                          background=tuple(cfg.get("render_fondo_color", (0, 0, 0))),
                                          margin=max(0.02, float(cfg["render_margen"])), rots=rots,
-                                         log=lambda *_: None, ajustes=ajs)
+                                         log=lambda *_: None, ajustes=ajs, read=_read)
             with lock:
                 for p_, n, r in parts:
                     if n not in infos:
@@ -765,6 +789,7 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
             for _p, n, _r in parts:
                 on_item(n, "error", f"ambiente: {e}")
 
+    cache.clear()
     with ThreadPoolExecutor(max_workers=max(1, int(cfg.get("paralelo_render", 2)))) as ex:
         list(ex.map(one, items))
 

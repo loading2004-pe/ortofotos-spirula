@@ -1,16 +1,16 @@
 {
- "version": "2026.11.23.16",
- "fecha": "2026-11-23 16:15",
- "notas": "Ambientes: reconoce más nombres (ELEV. 1, ELEVACIÓN, FACHADA, PLANTA DE PISOS, PLANTA DE TECHOS, plurales) y agrupa por carpeta aunque los archivos no compartan nombre. Borra restos de «6 caras» al re-renderizar.",
+ "version": "2026.11.23.17",
+ "fecha": "2026-11-23 16:30",
+ "notas": "Ambientes por partes: ahora se reconocen por la FORMA de los recortes, no por el nombre del archivo. Cualquier nombre funciona (1.ply, recorte A, CR…): la app detecta sola cuáles son paredes, techo y planta. Si una carpeta tiene varios modelos distintos, no los mezcla.",
  "min_lanzador": 1,
  "archivos": {
   "app.py": "8378d923fd11aff17ebd2d8305e334749d359c912c119ff396b92888c390bb40",
-  "pipeline.py": "68d65f3dd80f4e7e09c8e4d02e6256768a3548e6001f00ab98ed4254574adbc8",
+  "pipeline.py": "59f4fdab23178421e9b726587389435afe39af2e8bf447951e294229a3dd77e0",
   "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "0e1f2a9e9be0e358e5d6336b29cd984c3d372fcfff982086e0ef3ba80586231d",
-  "cubo.py": "61329be345f224a360a7ce63f619a216d8b035ba0e9e6508339fb94fa4654751"
+  "app_version.py": "f4323b1f6f982d76c92465826a168d51840fdda1a33e7ca24f387c0a0e88a97e",
+  "cubo.py": "e8148071c5071d72f44d67472bfd1d4cf22b006cf52548c0d99bb1d75151d9dc"
  }
 }

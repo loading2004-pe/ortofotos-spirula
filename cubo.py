@@ -565,23 +565,107 @@ def group_key(name):
     return " ".join(n.split())
 
 
-def find_ambientes(items):
+def _geo_part(P):
+    lo, hi = np.percentile(P, 2, axis=0), np.percentile(P, 98, axis=0)
+    Q = P[np.all((P >= lo) & (P <= hi), axis=1)]
+    if len(Q) < 50:
+        return None
+    return {"lo": lo, "hi": hi, "c": Q.mean(0)}
+
+
+def geo_roles(allp, name_roles=None, strict=True):
+    """Rol de cada recorte por su FORMA, sin depender del nombre del archivo.
+    En los modelos de Spirula/SuperSplat la vertical es -Y: el techo y la planta son los recortes
+    bajos en altura que están en los extremos de la altura de las paredes (techo arriba, planta
+    abajo). Los roles leídos del nombre (techo/suelo) mandan; «pared» es solo «no reconocido».
+    Devuelve {'roles', 'up'} o None si los recortes no forman un ambiente."""
+    name_roles = name_roles or {}
+    G = {n: _geo_part(P) for n, P in allp.items()}
+    G = {n: g for n, g in G.items() if g is not None}
+    if len(G) < 2:
+        return None
+    a = 1                                   # eje Y
+    up = np.array([0.0, -1.0, 0.0])
+    ext = {n: float(g["hi"][a] - g["lo"][a]) for n, g in G.items()}
+    H = max(ext.values())
+    if H <= 0:
+        return None
+    roles = {}
+    for n, g in G.items():
+        nr = name_roles.get(n, "pared")
+        roles[n] = nr if nr in ("techo", "suelo") else ("h" if ext[n] < 0.75 * H else "pared")
+    walls = [n for n in G if roles[n] == "pared"]
+    if not walls:
+        return None
+    wlo = min(G[n]["lo"][a] for n in walls)
+    whi = max(G[n]["hi"][a] for n in walls)
+    wh = max(whi - wlo, 1e-9)
+    ok = True
+    for n in G:
+        if roles[n] != "h":
+            continue
+        t = (G[n]["c"][a] - wlo) / wh        # 0 = arriba (Y menor), 1 = abajo
+        if t < 0.35:
+            roles[n] = "techo"
+        elif t > 0.65:
+            roles[n] = "suelo"
+        else:                               # a media altura: no es techo ni planta
+            roles[n] = "pared"
+            ok = False
+    if strict:
+        hz = [n for n in G if roles[n] in ("techo", "suelo")]
+        if len(walls) < 2 or not hz or not ok:
+            return None
+        # las paredes ocupan casi toda la altura del ambiente
+        if any(ext[n] < 0.55 * wh for n in walls):
+            return None
+        # todos los recortes juntos (mismo modelo, no escenas distintas)
+        diag = {n: float(np.linalg.norm(g["hi"] - g["lo"])) for n, g in G.items()}
+        ulo = np.min([g["lo"] for g in G.values()], 0)
+        uhi = np.max([g["hi"] for g in G.values()], 0)
+        if float(np.linalg.norm(uhi - ulo)) > 2.5 * max(diag.values()):
+            return None
+    return {"roles": roles, "up": up}
+
+
+def find_ambientes(items, geo=None):
     """items [(ply, nombre)] -> ({clave: [(ply, nombre, rol)]}, resto). Un ambiente es un grupo
-    de 3 o más recortes con el mismo nombre base y al menos un TECHO o PLANTA."""
-    groups = {}
+    de 3 o más recortes del mismo modelo con al menos un TECHO o PLANTA y paredes.
+    Primero por nombre; si los nombres no alcanzan y se da geo(partes) -> roles|None, se
+    reconoce por la forma de los recortes de la carpeta (sirve con cualquier nombre)."""
+    by_dir = {}
     for ply, name in items:
-        # misma carpeta + mismo nombre base (sin CARA/ELEV/PLANTA/TECHO…) = mismo ambiente
-        k = group_key(name)
-        folder = os.path.basename(os.path.dirname(os.path.abspath(ply)))
-        key = k or group_key(folder) or folder.lower()
-        groups.setdefault((os.path.dirname(os.path.abspath(ply)), key), []).append((ply, name, part_role(name)))
+        by_dir.setdefault(os.path.dirname(os.path.abspath(ply)), []).append((ply, name))
     amb, rest = {}, []
-    for (_d, k), parts in groups.items():
-        roles = [r for _p, _n, r in parts]
-        if len(parts) >= 3 and ("techo" in roles or "suelo" in roles) and roles.count("pared") >= 1:
-            amb[k] = parts
-        else:
-            rest += [(p, n) for p, n, _r in parts]
+    for d, its in by_dir.items():
+        folder = os.path.basename(d)
+        fkey = group_key(folder) or folder.lower()
+        groups = {}
+        for ply, name in its:
+            k = group_key(name) or fkey
+            groups.setdefault(k, []).append((ply, name, part_role(name)))
+        valid, left = {}, []
+        for k, parts in groups.items():
+            roles = [r for _p, _n, r in parts]
+            if len(parts) >= 3 and ("techo" in roles or "suelo" in roles) and roles.count("pared") >= 1:
+                valid[k] = parts
+            else:
+                left += parts
+        if len(valid) <= 1 and geo is not None:
+            cand = (next(iter(valid.values())) if valid else []) + left
+            if len(cand) >= 3 and left:
+                try:
+                    rr = geo(cand)
+                except Exception:
+                    rr = None
+                if rr:
+                    key = next(iter(valid)) if valid else fkey
+                    valid = {key: [(p, n, rr.get(n, r)) for p, n, r in cand if n in rr] or cand}
+                    left = [x for x in cand if x[1] not in rr]
+        for k, parts in valid.items():
+            kk = k if k not in amb else f"{k} ({folder})"
+            amb[kk] = parts
+        rest += [(p, n) for p, n, _r in left]
     return amb, rest
 
 
@@ -689,11 +773,16 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None):
     merged["rest"] = None
     merged["mip"] = False
     roles = {n: r for _p, n, r in parts}
+    g = geo_roles(allp, roles, strict=False)    # completa los roles que el nombre no dice
+    if g:
+        roles.update({n: r for n, r in g["roles"].items() if roles.get(n) == "pared"})
     tops = [np.median(allp[n], 0) for n in allp if roles[n] == "techo"]
     bots = [np.median(allp[n], 0) for n in allp if roles[n] == "suelo"]
     up0 = None
     if tops and bots:
         up0 = _unit(np.mean(tops, 0) - np.mean(bots, 0))
+    elif g:
+        up0 = g["up"]
     # vertical precisa con los planos de cada recorte: paredes ⟂ arriba, techo/planta ∥ arriba
     if up0 is not None:
         rng0 = np.random.default_rng(1)

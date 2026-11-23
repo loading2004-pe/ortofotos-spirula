@@ -607,7 +607,22 @@ class App(tk.Tk):
 
     def _results_dir(self):
         """Carpeta que muestra 'Revisar' (independiente de '1. Procesar' si se eligió otra)."""
-        return self.review_dir or self._process_results_dir()
+        if self.review_dir:
+            if self.cfg.get("ultima_revision") != self.review_dir:
+                self.cfg["ultima_revision"] = self.review_dir
+                try:
+                    pl.save_config(CONFIG_PATH, self.cfg)
+                except OSError:
+                    pass
+            return self.review_dir
+        d = self._process_results_dir()
+        has = os.path.isdir(d) and any(f.lower().endswith(".png") for f in os.listdir(d))
+        if not has:   # sin resultados de '1. Procesar': la última carpeta revisada o la de .ply limpios
+            for alt in (self.cfg.get("ultima_revision", ""),
+                        os.path.join(self.cfg.get("carpeta_ply_limpios", "") or "", "ortofotos_limpias")):
+                if alt and os.path.isdir(alt) and any(f.lower().endswith(".png") for f in os.listdir(alt)):
+                    return alt
+        return d
 
     @staticmethod
     def _calidad_label(px):

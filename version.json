@@ -1,16 +1,16 @@
 {
- "version": "2026.11.23.11",
- "fecha": "2026-11-23 14:37",
- "notas": "Visor para ambientes por partes: si la imagen es un recorte de un ambiente (CARA, LADO, PLANTA, TECHO), el visor muestra todas sus partes orientadas y deja ajustar cada una en vivo.",
+ "version": "2026.11.23.12",
+ "fecha": "2026-11-23 14:43",
+ "notas": "2. Revisar abre la última carpeta revisada (o la de .ply limpios) si no hay resultados de 1. Procesar.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "43a2012a2bd576dfd05cd672dd30d7b6aa74149e9447f7f58d09ebbef074b2af",
+  "app.py": "14674a3993047114447d49f0e611a785fbeb329c974289f833c2ea2a60f44eb3",
   "pipeline.py": "70d286a07f2cddb7299af76d43f4a6bcfc6ac1ba6cba5df9e8989395c00931d3",
   "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "a966f0bc245c2290b98ffd6113eabacea22c7da70d707f989d71a4ae0488298f",
+  "app_version.py": "4740598875f7e2a89f4e3a94a6dcbd00ed97d8e11caa31c401cb321d59532d68",
   "cubo.py": "bd8b246821ae486f1d2a4a5d0f0057484fec70e950d8582bef9d58162e77bd8a"
  }
 }

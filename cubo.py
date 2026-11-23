@@ -394,9 +394,21 @@ def wall_segments(an, norte=0):
 # ---------------------------------------------------------------------------
 # Render de las caras y lámina del cubo desplegado
 # ---------------------------------------------------------------------------
+def preview_model(model, k=350_000):
+    """Modelo reducido para la vista en vivo: los splats que más aportan (opacos y grandes)."""
+    n = len(model["xyz"])
+    if n <= k:
+        return model
+    w = _sigmoid(model["opacity"]) * np.exp(model["scale"].astype(np.float64).sum(1))
+    idx = np.argpartition(-w, k)[:k]
+    idx.sort()
+    return {key: (v[idx] if isinstance(v, np.ndarray) and len(v) == n else v) for key, v in model.items()}
+
+
 def render_faces(model, an, tipo, norte=0, caras=None, long_side=4000, background=(0, 0, 0),
-                 margin=0.03, log=print, ajustes=None):
-    """Devuelve {cara: PIL.Image} con todas las caras a la MISMA escala (px por metro)."""
+                 margin=0.03, log=print, ajustes=None, progress=None):
+    """Devuelve {cara: PIL.Image} con todas las caras a la MISMA escala (px por metro).
+    progress(i, n, cara) se llama antes de cada cara."""
     fc = face_cams(an, tipo, norte, margin, ajustes)
     if caras:
         fc = {k: v for k, v in fc.items() if k in caras}
@@ -405,7 +417,9 @@ def render_faces(model, an, tipo, norte=0, caras=None, long_side=4000, backgroun
     ext = {k: max(c.u_range[1] - c.u_range[0], c.v_range[1] - c.v_range[0]) for k, (c, _) in fc.items()}
     pix = max(ext.values()) / float(long_side)
     imgs = {}
-    for k, (cam, clip) in fc.items():
+    for i, (k, (cam, clip)) in enumerate(fc.items()):
+        if progress:
+            progress(i, len(fc), k)
         ls = max(64, int(round(ext[k] / pix)))
         fclip = clip / max(ext[k], 1e-9)
         imgs[k] = render(model, cam, ls, fclip, background=background)
@@ -491,10 +505,11 @@ def faces_dir(results_dir, name):
 
 
 def render_cube_job(model, an, tipo, norte, out_png, name, caras=None, long_side=4000,
-                    background=(0, 0, 0), margin=0.03, log=print, ajustes=None):
+                    background=(0, 0, 0), margin=0.03, log=print, ajustes=None, progress=None):
     """Guarda cada cara en '<resultados>/<nombre> (6 caras)/<nombre> - <Cara>.png' y la
     lámina del cubo desplegado en out_png. Devuelve info."""
-    imgs = render_faces(model, an, tipo, norte, caras, long_side, background, margin, log, ajustes)
+    imgs = render_faces(model, an, tipo, norte, caras, long_side, background, margin, log, ajustes,
+                        progress)
     d = faces_dir(os.path.dirname(os.path.abspath(out_png)), name)
     os.makedirs(d, exist_ok=True)
     for f in os.listdir(d):

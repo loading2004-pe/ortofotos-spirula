@@ -717,12 +717,12 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
 
 
 def render_auto(ply, out_png, name, cfg, wd=None, cams=None, ups=None, workspace=None, run_dir=None,
-                conf=None, flip=False, rot90=0, log=lambda *_: None):
+                conf=None, flip=False, rot90=0, log=lambda *_: None, progress=None, model=None):
     """Render de una carpeta: si es un ambiente de 6 caras (o así se indicó en el visor),
     una ortofoto por cara + lámina del cubo; si no, la ortofoto normal de siempre."""
     import render_ortho as ro
     import cubo
-    model = ro.read_splat_ply(ply)
+    model = model if model is not None else ro.read_splat_ply(ply)
     if cams is None and workspace:
         cams, ups = ro.cams_from_workspace(workspace, run_dir or os.path.dirname(ply), log)
     if cfg.get("_cam_store") and cams is not None:
@@ -752,7 +752,7 @@ def render_auto(ply, out_png, name, cfg, wd=None, cams=None, ups=None, workspace
         info = cubo.render_cube_job(model, an, tipo, int(conf.get("norte", 0)), out_png, name,
                                     caras=conf.get("caras"), long_side=int(cfg["render_lado_largo_px"]),
                                     background=bg, margin=cfg["render_margen"], log=log,
-                                    ajustes=conf.get("ajustes"))
+                                    ajustes=conf.get("ajustes"), progress=progress)
         info["roll_fix_deg"] = 0.0
         info["modo"] = f"{tipo} · {len(info['caras'])} caras"
         return info

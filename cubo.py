@@ -55,6 +55,33 @@ def _peaks_extremes(s, w, lo, hi, nb=400):
     return float(c[pk[0]]), float(c[pk[-1]])
 
 
+def _up_without_cams(model, P):
+    """Sin cámaras: la vertical es el eje más delgado de la nube (un edificio o una calle son
+    más anchos que altos; una habitación también) y el sentido es el lado desde el que se
+    filmó (el más limpio, sin la neblina que queda detrás de las superficies)."""
+    from render_ortho import _front_haze
+    lo, hi = np.percentile(P, 2, axis=0), np.percentile(P, 98, axis=0)
+    Q = P[np.all((P >= lo) & (P <= hi), axis=1)]
+    if len(Q) < 100:
+        return np.array([0.0, 0.0, -1.0])
+    ctr = Q.mean(0)
+    _, _, vt = np.linalg.svd(Q - ctr, full_matrices=False)
+    up = _unit(vt[2])
+    r = _unit(vt[0])
+    u2 = _unit(np.cross(up, r))
+    a, b = (Q - ctr) @ r, (Q - ctr) @ u2
+    rng_u = (float(np.percentile(a, 1)), float(np.percentile(a, 99)))
+    rng_v = (float(np.percentile(b, 1)), float(np.percentile(b, 99)))
+    try:
+        top = OrthoCam(ctr, r, u2, up, rng_u, rng_v)
+        bot = OrthoCam(ctr, -r, u2, -up, (-rng_u[1], -rng_u[0]), rng_v)
+        if _front_haze(model, bot) < _front_haze(model, top):
+            up = -up
+    except Exception:
+        pass
+    return up
+
+
 def analyze(model, cams=None, ups=None, max_pts=400_000, seed=0):
     """Analiza la geometría. Devuelve un dict serializable (listas) con la detección."""
     rng = np.random.default_rng(seed)
@@ -80,7 +107,7 @@ def analyze(model, cams=None, ups=None, max_pts=400_000, seed=0):
     if ups is not None and len(ups):
         up = _unit(np.mean(np.asarray(ups, float), 0))
     else:
-        up = np.array([0.0, 0.0, -1.0])
+        up = _up_without_cams(model, P)
     c = N @ up
     hz = flat & (np.abs(c) > 0.94)
     if W[hz].sum() > 0.03 * W[flat].sum():
@@ -102,6 +129,7 @@ def analyze(model, cams=None, ups=None, max_pts=400_000, seed=0):
         if wv[m].sum() > 0:
             theta += float(np.average(dphi[m], weights=wv[m]))
     manhattan = float(abs(z) / max(wv.sum(), 1e-12))
+    vfrac = float(wv.sum() / max(W[flat].sum(), 1e-12))     # peso de superficies verticales
     d0 = _unit(math.cos(theta) * e1 + math.sin(theta) * e2)
     d1 = _unit(np.cross(up, d0))
     axes = [d0, d1, up]
@@ -156,19 +184,27 @@ def analyze(model, cams=None, ups=None, max_pts=400_000, seed=0):
         inside = float(ins.mean())
     # automático solo con las 4 paredes (una puerta en un pasillo tiene 3: sigue siendo fachada);
     # con 3 caras o menos se puede elegir a mano en el visor
+    aerial = (ratio >= 0.3 and 0.12 < H / max(min(L0, L1), 1e-9) < 0.6 and manhattan > 0.2
+              and vfrac >= 0.15
+              and (inside is None or inside < 0.3) and n_walls >= 1)
     if ratio >= 0.3 and n_walls == 4 and manhattan > 0.25:
         if inside is not None:
             tipo = "interior" if inside >= 0.6 else "exterior"
         else:
             tipo = "interior" if min(sup[2]) >= 0.05 else "exterior"
+    elif aerial:
+        # manzana / edificio capturado desde arriba (dron): más ancho que alto y sin cámaras
+        # dentro -> exterior (elevaciones + cubierta) aunque las paredes no estén completas
+        tipo = "exterior"
     else:
         tipo = "fachada"
     why = (f"{n_walls} paredes completas (cobertura " + "/".join(f"{x:.0%}" for x in cov)
-           + f"), proporción {ratio:.2f}, ortogonalidad {manhattan:.2f}"
+           + f"), proporción {ratio:.2f}, altura/ancho {H / max(min(L0, L1), 1e-9):.2f}"
+           + f", ortogonalidad {manhattan:.2f}, superficies verticales {vfrac:.0%}"
            + (f", cámaras dentro {inside:.0%}" if inside is not None else ""))
     return {"tipo_auto": tipo, "motivo": why, "up": up.tolist(), "d0": d0.tolist(),
             "d1": d1.tolist(), "caja": box, "soporte": sup, "paredes": walls, "cobertura": cov,
-            "camaras_dentro": inside}
+            "camaras_dentro": inside, "verticales": vfrac}
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +377,7 @@ def sheet(imgs, tipo, max_width=8000, background=(0, 0, 0), titulo=""):
     th = top.size[1] if top is not None else 0
     bh = bot.size[1] if bot is not None else 0
     gap = max(8, wh // 60)
-    lab = max(28, wh // 25)
+    lab = max(28, wh // 25, sum(ww) // 140)
     W = sum(ww) + gap * (len(ww) + 1)
     H = th + wh + bh + gap * 4 + lab * 3
     canvas = Image.new("RGB", (W, H), tuple(background))

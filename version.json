@@ -1,16 +1,16 @@
 {
- "version": "2026.11.23.4",
- "fecha": "2026-11-23 09:45",
- "notas": "Visor 6 caras: alineación a mano tipo gizmo. Arrastra en la planta cada pared y el punto blanco para girar; elige la vertical (+X…-Z), inclina con los controles y sube o baja suelo y techo. Se guarda y se usa al renderizar.",
+ "version": "2026.11.23.5",
+ "fecha": "2026-11-23 09:57",
+ "notas": "Visor 6 caras: cada cara se ajusta por separado (Norte, Este, Sur, Oeste, Techo, Suelo): giro, inclinación, rotar imagen, mover el plano y encuadre, con vista grande y cuadrícula de la cara elegida. En la planta, arrastrar una pared o su punto blanco solo mueve o gira esa pared.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "d8b80ba525d0132e4bc9ab9f5f16911b27c2f89885d71187f96b1f6feb39eefa",
-  "pipeline.py": "17032886229644ec87039d4b05b7b9741bef6176a9363236efeddac66d7ac30c",
+  "app.py": "fd8d1a24d1c70e9f0daf9687af4b2ea37369d52582be9b39b11772da2a0e2bc9",
+  "pipeline.py": "4de6c1cfe19ad53c2390853df6ed344a1cc3831a5248b5e8fbcae92465724403",
   "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "cd79ce2c189e5ef507167cf8804085d869b920a991557f5a26c0ad833794bb65",
-  "cubo.py": "b75cb20799827802953fdb77c06d151078e932e0bd74773c5ab8242ce5731c5c"
+  "app_version.py": "527d8bdb7f99d250efb2b3f30f59953e67849811ddbff3bd1f8c0990d3ad3aec",
+  "cubo.py": "7444facabd3d72aa6f72e81730fe1cb2736d1acdfe1c00e05caa1986d580372c"
  }
 }

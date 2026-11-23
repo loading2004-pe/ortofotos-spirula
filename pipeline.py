@@ -751,7 +751,8 @@ def render_auto(ply, out_png, name, cfg, wd=None, cams=None, ups=None, workspace
                 pass
         info = cubo.render_cube_job(model, an, tipo, int(conf.get("norte", 0)), out_png, name,
                                     caras=conf.get("caras"), long_side=int(cfg["render_lado_largo_px"]),
-                                    background=bg, margin=cfg["render_margen"], log=log)
+                                    background=bg, margin=cfg["render_margen"], log=log,
+                                    ajustes=conf.get("ajustes"))
         info["roll_fix_deg"] = 0.0
         info["modo"] = f"{tipo} · {len(info['caras'])} caras"
         return info

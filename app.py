@@ -1553,6 +1553,9 @@ class CubeViewer(tk.Toplevel):
         self.model = self.an = self.cams = self.ups = None
         self._imgs = []
         self._saved_manual = conf.get("manual")
+        self.ajustes = {k: dict(v) for k, v in (conf.get("ajustes") or {}).items()}
+        self.sel_face = tk.StringVar(value="Norte")
+        self._after_face = None
         self.cur = None             # análisis en uso (automático o alineado a mano)
         self._pc = None             # cámara de la planta dibujada
         self._drag = None
@@ -1567,8 +1570,8 @@ class CubeViewer(tk.Toplevel):
         mp = ttk.LabelFrame(left, text="  Alinear a mano (si no lo detecta bien)  ", padding=6)
         mp.pack(fill="x", pady=(8, 0))
         self.manual_on = tk.BooleanVar(value=bool(self._saved_manual))
-        ttk.Checkbutton(mp, text="Usar mi alineación (arrastra en la planta los bordes de colores para "
-                                 "mover cada pared y el punto blanco para girar)",
+        ttk.Checkbutton(mp, text="Mover TODA la caja a la vez (vertical, giro e inclinación generales). "
+                                 "Para una sola cara usa el panel «Ajustar UNA cara».",
                         variable=self.manual_on, command=self._toggle_manual).pack(anchor="w")
         g = ttk.Frame(mp)
         g.pack(fill="x", pady=(4, 0))
@@ -1629,6 +1632,43 @@ class CubeViewer(tk.Toplevel):
         ttk.Button(r2, text="Cerrar", command=self.destroy).pack(side="left", padx=8)
         self.status = ttk.Label(r2, text="", foreground="#1f5fa8")
         self.status.pack(side="left", padx=8)
+        fp = ttk.LabelFrame(right, text="  Ajustar UNA cara por separado (no mueve las demás)  ", padding=6)
+        fp.pack(fill="x", pady=(8, 0))
+        fl = ttk.Frame(fp)
+        fl.pack(side="left", fill="y")
+        r0 = ttk.Frame(fl)
+        r0.pack(anchor="w")
+        ttk.Label(r0, text="Cara:").pack(side="left")
+        fcb = ttk.Combobox(r0, textvariable=self.sel_face, state="readonly", width=8, values=list(cubo.CARAS))
+        fcb.pack(side="left", padx=4)
+        fcb.bind("<<ComboboxSelected>>", lambda e: self._face_selected())
+        ttk.Button(r0, text="Reiniciar esta cara", command=self._face_reset).pack(side="left", padx=6)
+        self._fs = {}
+        for i, (key, lab, lo, hi) in enumerate((("giro", "Giro", -45, 45), ("incl", "Inclinación", -30, 30),
+                                                ("rot", "Rotar imagen", -20, 20))):
+            rr = ttk.Frame(fl)
+            rr.pack(anchor="w", fill="x")
+            ttk.Label(rr, text=lab + ":", width=12).pack(side="left")
+            v = tk.DoubleVar(value=0.0)
+            ttk.Scale(rr, from_=lo, to=hi, variable=v, length=230,
+                      command=lambda _x, k=key: self._face_slider(k)).pack(side="left")
+            ttk.Button(rr, text="−", width=2, command=lambda k=key: self._face_nudge(k, -0.1)).pack(side="left")
+            ttk.Button(rr, text="+", width=2, command=lambda k=key: self._face_nudge(k, +0.1)).pack(side="left")
+            lv = ttk.Label(rr, text="0.0°", width=7)
+            lv.pack(side="left")
+            self._fs[key] = (v, lv)
+        rr = ttk.Frame(fl)
+        rr.pack(anchor="w", pady=(2, 0))
+        ttk.Label(rr, text="Mover plano:", width=12).pack(side="left")
+        ttk.Button(rr, text="◀ atrás", command=lambda: self._face_move(-1)).pack(side="left")
+        ttk.Button(rr, text="adelante ▶", command=lambda: self._face_move(+1)).pack(side="left", padx=2)
+        ttk.Label(rr, text="  Encuadre:").pack(side="left")
+        ttk.Button(rr, text="−", width=2, command=lambda: self._face_zoom(-1)).pack(side="left")
+        ttk.Button(rr, text="+", width=2, command=lambda: self._face_zoom(+1)).pack(side="left")
+        self.face_lbl = ttk.Label(fl, text="", foreground="#555", wraplength=380)
+        self.face_lbl.pack(anchor="w")
+        self.face_cv = tk.Canvas(fp, width=380, height=230, bg="#222", highlightthickness=0)
+        self.face_cv.pack(side="left", padx=(8, 0))
         res = ttk.LabelFrame(right, text="  Resultado guardado  ", padding=6)
         res.pack(fill="x", pady=(8, 0))
         self.res_lbl = ttk.Label(res, text="Todavía no hay caras guardadas para esta carpeta.",
@@ -1787,6 +1827,7 @@ class CubeViewer(tk.Toplevel):
             self.cur = dict(self.an)
         self._ref_d0 = np.array(self.cur["d0"], float)
         self._preview()
+        self._face_selected(redraw=False)
 
     def _rot_north(self):
         self.norte = (self.norte + 1) % 4
@@ -1813,7 +1854,8 @@ class CubeViewer(tk.Toplevel):
             faces = {}
             if tipo in ("interior", "exterior"):
                 faces = cubo.render_faces(self.model, an, tipo, norte, caras, long_side=self.TH,
-                                          background=(34, 34, 34), log=lambda *_: None)
+                                          background=(34, 34, 34), log=lambda *_: None,
+                                          ajustes={k: dict(v) for k, v in self.ajustes.items()})
             self.after(0, lambda: self._show(plan, pc, faces, tipo, an))
         threading.Thread(target=work, daemon=True).start()
 
@@ -1881,7 +1923,11 @@ class CubeViewer(tk.Toplevel):
                 im.thumbnail((self.TH, self.TH))
                 t = ImageTk.PhotoImage(im)
                 self._imgs.append(t)
-                tk.Label(cell, image=t, bg="#222").pack()
+                lw = tk.Label(cell, image=t, bg="#ffffff" if k == self.sel_face.get() else "#222",
+                              cursor="hand2", bd=2)
+                lw.pack()
+                lw.bind("<Button-1>", lambda e, k=k: (self.sel_face.set(k), self._face_selected(),
+                                                      self._preview()))
         self.status.config(text="")
 
     COLORS = {"Norte": "#ff5252", "Este": "#ffd740", "Sur": "#69f0ae", "Oeste": "#40c4ff"}
@@ -1890,32 +1936,37 @@ class CubeViewer(tk.Toplevel):
         import cubo
         an = an or self._use()
         cv, pc = self.plan, self._pc
-        if pc is None:
+        if pc is None or an is None:
             return
         cv.delete("ov")
         W = H = 520
         self._segs = {}
-        for nm, (a, b) in cubo.wall_segments(an, self.norte).items():
-            (x0, y0), (x1, y1) = cubo.project(pc, [a, b], W, H)
+        tipo = self._eff_tipo() if self._eff_tipo() in ("interior", "exterior") else "exterior"
+        fc = cubo.face_cams(an, tipo, self.norte, ajustes=self.ajustes)
+        sel = self.sel_face.get()
+        ctr = cubo.project(pc, [self._center(an)], W, H)[0]
+        for nm in ("Norte", "Este", "Sur", "Oeste"):
+            cam, _clip = fc[nm]
+            p0 = cam.origin + cam.right * cam.u_range[0]
+            p1 = cam.origin + cam.right * cam.u_range[1]
+            (x0, y0), (x1, y1) = cubo.project(pc, [p0, p1], W, H)
             self._segs[nm] = (x0, y0, x1, y1)
-            cv.create_line(x0, y0, x1, y1, fill=self.COLORS[nm], width=4 if cube else 1,
+            wsel = nm == sel
+            cv.create_line(x0, y0, x1, y1, fill=self.COLORS[nm], width=(6 if wsel else 3) if cube else 1,
                            dash=() if cube else (4, 4), tags="ov")
             mx, my = (x0 + x1) / 2, (y0 + y1) / 2
-            ctr = cubo.project(pc, [self._center(an)], W, H)[0]
             lx, ly = mx + (mx - ctr[0]) * 0.12, my + (my - ctr[1]) * 0.12
-            cv.create_text(lx, ly, text=nm, fill=self.COLORS[nm], font=("Segoe UI", 11, "bold"), tags="ov")
-        if self.manual_on.get():
-            c = cubo.project(pc, [self._center(an)], W, H)[0]
-            n = cubo.project(pc, [self._center(an) + cubo.cardinal(an, self.norte)["Norte"] *
-                                  0.35 * self._span(an)], W, H)[0]
-            cv.create_line(c[0], c[1], n[0], n[1], fill="white", width=2, tags="ov")
-            cv.create_oval(n[0] - 7, n[1] - 7, n[0] + 7, n[1] + 7, fill="white", outline="#222", tags="ov")
-            self._handle = (n[0], n[1], c[0], c[1])
-            (a0, b0), (a1, b1), (au, bu) = an["caja"]
-            self.man_lbl.config(text=f"Caja: {b0 - a0:.2f} × {b1 - a1:.2f} × alto {bu - au:.2f} "
-                                     "(unidades del modelo)")
-        cv.create_text(W - 20, 18, text="N ↑" if not self.manual_on.get() else "", fill="#ff5252",
-                       font=("Segoe UI", 12, "bold"), tags="ov")
+            cv.create_text(lx, ly, text=nm + (" ●" if self.ajustes.get(nm) else ""), fill=self.COLORS[nm],
+                           font=("Segoe UI", 11, "bold"), tags="ov")
+            if wsel and cube:   # asa para girar SOLO esta pared
+                cv.create_oval(x1 - 7, y1 - 7, x1 + 7, y1 + 7, fill="white", outline="#222", tags="ov")
+                self._handle = (x1, y1, mx, my)
+        if sel not in self._segs:
+            self._handle = None
+        (a0, b0), (a1, b1), (au, bu) = an["caja"]
+        self.man_lbl.config(text=f"Caja: {b0 - a0:.2f} × {b1 - a1:.2f} × alto {bu - au:.2f} "
+                                 "(unidades del modelo)")
+        cv.create_text(W - 20, 18, text="N ↑", fill="#ff5252", font=("Segoe UI", 12, "bold"), tags="ov")
 
     @staticmethod
     def _center(an):
@@ -1939,10 +1990,12 @@ class CubeViewer(tk.Toplevel):
         self._plan_key = None
         self._preview()
 
-    def _schedule(self, plan=False):
+    def _schedule(self, plan=False, face_only=False):
         if plan:
             self._plan_key = None
         self._draw_overlay()
+        if face_only:
+            self._schedule_face()
         if self._after_prev:
             self.after_cancel(self._after_prev)
         self._after_prev = self.after(700, self._preview)
@@ -2041,7 +2094,7 @@ class CubeViewer(tk.Toplevel):
         if self._pc is None or self.an is None:
             return
         h = getattr(self, "_handle", None)
-        if self.manual_on.get() and h and (e.x - h[0]) ** 2 + (e.y - h[1]) ** 2 < 144:
+        if h and (e.x - h[0]) ** 2 + (e.y - h[1]) ** 2 < 144:
             self._drag = ("rot", math.atan2(e.y - h[3], e.x - h[2]))
             return
         best, bd = None, 12.0
@@ -2052,42 +2105,32 @@ class CubeViewer(tk.Toplevel):
             if d < bd:
                 best, bd = nm, d
         if best:
-            self._ensure_manual()
-            self._drag = ("wall", best)
+            self.sel_face.set(best)
+            self._face_selected()
+            adj = self.ajustes.get(best, {})
+            self._drag = ("wall", best, self._world(e.x, e.y), float(adj.get("mover", 0)))
 
     def _motion(self, e):
         import cubo
-        if not self._drag or self.cur is None:
+        if not self._drag or self._use() is None:
             return
         if self._drag[0] == "rot":
             h = self._handle
             ang = math.atan2(e.y - h[3], e.x - h[2])
             d = math.degrees(ang - self._drag[1])
             self._drag = ("rot", ang)
-            # en pantalla el eje y va hacia abajo: girar en sentido horario es negativo
-            self.cur = cubo.rotate_frame(self.cur, yaw_deg=-d)
-            v = self._sl["yaw"]
-            v[1] = max(-45.0, min(45.0, v[1] - d))
-            v[0].set(v[1])
-            v[2].config(text=f"{v[1]:+.1f}°")
+            nm = self.sel_face.get()
+            adj = self.ajustes.setdefault(nm, {})
+            adj["giro"] = max(-45.0, min(45.0, float(adj.get("giro", 0)) - d))
+            self._face_selected(redraw=False)
             self._draw_overlay()
             return
-        nm = self._drag[1]
-        D = cubo.cardinal(self.cur, self.norte)[nm]
-        p = self._world(e.x, e.y)
-        box = [list(x) for x in self.cur["caja"]]
-        for k in (0, 1):
-            ax = np.array(self.cur["d%d" % k], float)
-            dot = float(D @ ax)
-            if abs(dot) > 0.9:
-                s = float(p @ ax)
-                lo, hi = box[k]
-                mind = 0.05 * self._span(self.cur)
-                if dot > 0:
-                    box[k][1] = max(s, lo + mind)
-                else:
-                    box[k][0] = min(s, hi - mind)
-        self.cur = dict(self.cur, caja=box)
+        _k, nm, p_start, mv0 = self._drag
+        tipo = self._eff_tipo() if self._eff_tipo() in ("interior", "exterior") else "exterior"
+        cam = cubo.face_cams(self._use(), tipo, self.norte, ajustes={})[nm][0]
+        delta = float((self._world(e.x, e.y) - p_start) @ cam.normal)
+        self.ajustes.setdefault(nm, {})["mover"] = mv0 + delta
+        self._face_selected(redraw=False)
         self._draw_overlay()
 
     def _release(self, _e):
@@ -2095,9 +2138,93 @@ class CubeViewer(tk.Toplevel):
             self._drag = None
             self._schedule()
 
+    # ---- ajuste de una cara
+    def _face_selected(self, redraw=True):
+        nm = self.sel_face.get()
+        adj = self.ajustes.get(nm, {})
+        for k, (v, lv) in self._fs.items():
+            v.set(float(adj.get(k, 0)))
+            lv.config(text=f"{float(adj.get(k, 0)):+.1f}°")
+        span = self._span(self._use()) if self._use() else 1.0
+        self.face_lbl.config(text=f"{nm}: mover {float(adj.get('mover', 0)) / max(span, 1e-9) * 100:+.1f}% · "
+                                  f"encuadre {float(adj.get('ampliar', 0)) * 100:+.0f}%")
+        if redraw:
+            self._draw_overlay()
+        self._schedule_face()
+
+    def _face_set(self, key, val):
+        nm = self.sel_face.get()
+        adj = self.ajustes.setdefault(nm, {})
+        adj[key] = val
+        if not any(abs(float(x)) > 1e-9 for x in adj.values()):
+            self.ajustes.pop(nm, None)
+        self._face_selected(redraw=True)
+        self._schedule(face_only=True)
+
+    def _face_slider(self, key):
+        v, _lv = self._fs[key]
+        self._face_set(key, round(float(v.get()) * 10) / 10)
+
+    def _face_nudge(self, key, d):
+        cur = float(self.ajustes.get(self.sel_face.get(), {}).get(key, 0))
+        self._face_set(key, round(cur + d, 2))
+
+    def _face_move(self, sign):
+        span = self._span(self._use()) if self._use() else 1.0
+        cur = float(self.ajustes.get(self.sel_face.get(), {}).get("mover", 0))
+        self._face_set("mover", cur + sign * 0.005 * span)
+
+    def _face_zoom(self, sign):
+        cur = float(self.ajustes.get(self.sel_face.get(), {}).get("ampliar", 0))
+        self._face_set("ampliar", max(-0.5, round(cur + sign * 0.05, 2)))
+
+    def _face_reset(self):
+        self.ajustes.pop(self.sel_face.get(), None)
+        self._face_selected()
+        self._schedule()
+
+    def _schedule_face(self):
+        if self._after_face:
+            self.after_cancel(self._after_face)
+        self._after_face = self.after(350, self._face_preview)
+
+    def _face_preview(self):
+        """Vista grande y rápida SOLO de la cara elegida."""
+        if self.model is None or self._use() is None:
+            return
+        tipo = self._eff_tipo()
+        if tipo not in ("interior", "exterior"):
+            self.face_cv.delete("all")
+            return
+        nm, an, adj = self.sel_face.get(), dict(self._use()), {k: dict(v) for k, v in self.ajustes.items()}
+
+        def work():
+            import cubo
+            imgs = cubo.render_faces(self.model, an, tipo, self.norte, [nm], long_side=380,
+                                     background=(34, 34, 34), log=lambda *_: None, ajustes=adj)
+            self.after(0, lambda: self._face_show(imgs.get(nm)))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _face_show(self, im):
+        from PIL import ImageTk
+        self.face_cv.delete("all")
+        if im is None:
+            return
+        im = im.copy()
+        im.thumbnail((380, 230))
+        self._face_photo = ImageTk.PhotoImage(im)
+        self.face_cv.create_image(190, 115, image=self._face_photo)
+        # cuadrícula para alinear a ojo
+        for x in range(0, 381, 38):
+            self.face_cv.create_line(x, 0, x, 230, fill="#ffffff", stipple="gray25")
+        for y in range(0, 231, 23):
+            self.face_cv.create_line(0, y, 380, y, fill="#ffffff", stipple="gray25")
+
     def _conf(self):
         caras = [k for k, v in self.caras.items() if v.get()]
         c = {"tipo": self.tipo.get(), "norte": self.norte}
+        if self.ajustes:
+            c["ajustes"] = {k: v for k, v in self.ajustes.items() if v}
         if self.manual_on.get() and self.cur:
             c["manual"] = {k: self.cur[k] for k in ("up", "d0", "d1", "caja")}
             if c["tipo"] in ("auto", "fachada"):

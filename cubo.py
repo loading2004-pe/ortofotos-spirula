@@ -19,7 +19,7 @@ import os
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from render_ortho import OrthoCam, render
+from render_ortho import OrthoCam, render, rotate_camera
 
 CARAS = ("Norte", "Este", "Sur", "Oeste", "Techo", "Suelo")
 TIPOS = ("fachada", "interior", "exterior")
@@ -242,8 +242,34 @@ def _extent(an, d):
     raise ValueError("dirección no alineada")
 
 
-def face_cams(an, tipo, norte=0, margin=0.03):
-    """{cara: (OrthoCam, recorte_frontal_absoluto)} para 'interior' o 'exterior'."""
+def _rot(v, axis, deg):
+    t = math.radians(deg)
+    axis = _unit(axis)
+    return v * math.cos(t) + np.cross(axis, v) * math.sin(t) + axis * (axis @ v) * (1 - math.cos(t))
+
+
+def adjust_cam(cam, adj):
+    """Ajuste propio de UNA cara: giro (alrededor de su vertical), inclinación (alrededor de su
+    horizontal), rotación de la imagen, mover el plano (hacia el observador +) y ampliar el
+    encuadre (fracción)."""
+    if not adj:
+        return cam
+    g, i, r = float(adj.get("giro", 0)), float(adj.get("incl", 0)), float(adj.get("rot", 0))
+    mv, amp = float(adj.get("mover", 0)), float(adj.get("ampliar", 0))
+    right, up, normal = cam.right.copy(), cam.up.copy(), cam.normal.copy()
+    if g:
+        right, normal = _rot(right, up, g), _rot(normal, up, g)
+    if i:
+        up, normal = _rot(up, right, i), _rot(normal, right, i)
+    k = 1.0 + amp
+    c = OrthoCam(cam.origin + normal * mv, _unit(right), _unit(up), _unit(normal),
+                 (cam.u_range[0] * k, cam.u_range[1] * k), (cam.v_range[0] * k, cam.v_range[1] * k))
+    return rotate_camera(c, r) if r else c
+
+
+def face_cams(an, tipo, norte=0, margin=0.03, ajustes=None):
+    """{cara: (OrthoCam, recorte_frontal_absoluto)} para 'interior' o 'exterior'.
+    ajustes = {cara: {giro, incl, rot, mover, ampliar}} para corregir cada cara por separado."""
     up = np.array(an["up"])
     d0, d1 = np.array(an["d0"]), np.array(an["d1"])
     (a0, b0), (a1, b1), (au, bu) = an["caja"]
@@ -281,6 +307,8 @@ def face_cams(an, tipo, norte=0, margin=0.03):
         cam = OrthoCam(origin, right, img_up, normal, (-hu * (1 + 2 * margin), hu * (1 + 2 * margin)),
                        (-hv * (1 + 2 * margin), hv * (1 + 2 * margin)))
         out[name] = (cam, (0.02 if inner else 0.04) * H)
+    if ajustes:
+        out = {k: (adjust_cam(c, ajustes.get(k)), clip) for k, (c, clip) in out.items()}
     return out
 
 
@@ -367,9 +395,9 @@ def wall_segments(an, norte=0):
 # Render de las caras y lámina del cubo desplegado
 # ---------------------------------------------------------------------------
 def render_faces(model, an, tipo, norte=0, caras=None, long_side=4000, background=(0, 0, 0),
-                 margin=0.03, log=print):
+                 margin=0.03, log=print, ajustes=None):
     """Devuelve {cara: PIL.Image} con todas las caras a la MISMA escala (px por metro)."""
-    fc = face_cams(an, tipo, norte, margin)
+    fc = face_cams(an, tipo, norte, margin, ajustes)
     if caras:
         fc = {k: v for k, v in fc.items() if k in caras}
     if not fc:
@@ -463,10 +491,10 @@ def faces_dir(results_dir, name):
 
 
 def render_cube_job(model, an, tipo, norte, out_png, name, caras=None, long_side=4000,
-                    background=(0, 0, 0), margin=0.03, log=print):
+                    background=(0, 0, 0), margin=0.03, log=print, ajustes=None):
     """Guarda cada cara en '<resultados>/<nombre> (6 caras)/<nombre> - <Cara>.png' y la
     lámina del cubo desplegado en out_png. Devuelve info."""
-    imgs = render_faces(model, an, tipo, norte, caras, long_side, background, margin, log)
+    imgs = render_faces(model, an, tipo, norte, caras, long_side, background, margin, log, ajustes)
     d = faces_dir(os.path.dirname(os.path.abspath(out_png)), name)
     os.makedirs(d, exist_ok=True)
     for f in os.listdir(d):

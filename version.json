@@ -1,16 +1,16 @@
 {
- "version": "2026.11.23.15",
- "fecha": "2026-11-23 15:47",
- "notas": "Ambientes por partes: vertical calculada con los planos de todas las paredes, techo y planta (más precisa) y enderezado automático de hasta 45°. Techo y planta ya no salen oblicuos.",
+ "version": "2026.11.23.16",
+ "fecha": "2026-11-23 16:15",
+ "notas": "Ambientes: reconoce más nombres (ELEV. 1, ELEVACIÓN, FACHADA, PLANTA DE PISOS, PLANTA DE TECHOS, plurales) y agrupa por carpeta aunque los archivos no compartan nombre. Borra restos de «6 caras» al re-renderizar.",
  "min_lanzador": 1,
  "archivos": {
   "app.py": "8378d923fd11aff17ebd2d8305e334749d359c912c119ff396b92888c390bb40",
-  "pipeline.py": "d0acc0855d3b76f22d3351f87e176e663bc617ae58ba61604bba32f61b2eb310",
+  "pipeline.py": "68d65f3dd80f4e7e09c8e4d02e6256768a3548e6001f00ab98ed4254574adbc8",
   "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "9642bad936bf0b4e3ae663d6d0497cfefcf5f43a2f61419e7d346981bbabb4b8",
-  "cubo.py": "499790b7b689ed89a77bb05f7311ae4daf1425b07aceb0c91d6a2ff47bee43a7"
+  "app_version.py": "0e1f2a9e9be0e358e5d6336b29cd984c3d372fcfff982086e0ef3ba80586231d",
+  "cubo.py": "61329be345f224a360a7ce63f619a216d8b035ba0e9e6508339fb94fa4654751"
  }
 }

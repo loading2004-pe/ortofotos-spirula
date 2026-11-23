@@ -741,6 +741,7 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
                 for old in (os.path.join(out_dir, n + ".png"), os.path.join(out_dir, "x_" + n + ".png")):
                     if os.path.exists(old):
                         os.remove(old)
+                shutil.rmtree(cubo.faces_dir(out_dir, n), ignore_errors=True)   # restos de «6 caras»
             ajs = {n: man.get(n, {}).get("ajuste") for _p, n, _r in parts if man.get(n, {}).get("ajuste")}
             infos = cubo.render_ambiente(parts, out_dir, long_side=int(cfg["render_lado_largo_px"]),
                                          background=tuple(cfg.get("render_fondo_color", (0, 0, 0))),

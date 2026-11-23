@@ -539,10 +539,11 @@ def render_cube_job(model, an, tipo, norte, out_png, name, caras=None, long_side
 # ---------------------------------------------------------------------------
 import re as _re
 
-_ROLE_WORDS = {
-    "techo": ("techo", "cielo", "cielorraso", "cielo raso", "ceiling"),
-    "suelo": ("planta", "piso", "suelo", "floor"),
+_ROLE_WORDS = {      # el orden importa: «planta de techos» es techo
+    "techo": ("techos?", "cielos?", "cielorrasos?", "cielo raso", "ceiling", "cubiertas?"),
+    "suelo": ("plantas?", "pisos?", "suelos?", "floor"),
 }
+_WALL = r"(caras?|lados?|pared(es)?|muros?|elev(aci[oó]n(es)?)?|fachadas?|vistas?|alzados?)"
 
 
 def part_role(name):
@@ -554,13 +555,14 @@ def part_role(name):
 
 
 def group_key(name):
-    n = name.lower()
-    n = _re.sub(r"\b(cara|lado|pared|muro|elevaci[oó]n|vista)\s*[a-z0-9]{1,2}\b", " ", n)
+    n = name.lower().replace("_", " ").replace("-", " ")
+    n = _re.sub(r"\b" + _WALL + r"\.?\s*[a-z0-9]{0,3}\b\.?", " ", n)
     for words in _ROLE_WORDS.values():
         for w in words:
             n = _re.sub(r"\b" + w + r"\b", " ", n)
-    n = _re.sub(r"\b(ambiente|interior|amb)\b", " ", n)
-    return " ".join(_re.sub(r"[_\-]+", " ", n).split())
+    n = _re.sub(r"\b(ambientes?|interior|amb|de|del|la|las|los|el)\b", " ", n)
+    n = _re.sub(r"[^a-z0-9áéíóúñ ]+", " ", n)
+    return " ".join(n.split())
 
 
 def find_ambientes(items):
@@ -568,9 +570,13 @@ def find_ambientes(items):
     de 3 o más recortes con el mismo nombre base y al menos un TECHO o PLANTA."""
     groups = {}
     for ply, name in items:
-        groups.setdefault(group_key(name), []).append((ply, name, part_role(name)))
+        # misma carpeta + mismo nombre base (sin CARA/ELEV/PLANTA/TECHO…) = mismo ambiente
+        k = group_key(name)
+        folder = os.path.basename(os.path.dirname(os.path.abspath(ply)))
+        key = k or group_key(folder) or folder.lower()
+        groups.setdefault((os.path.dirname(os.path.abspath(ply)), key), []).append((ply, name, part_role(name)))
     amb, rest = {}, []
-    for k, parts in groups.items():
+    for (_d, k), parts in groups.items():
         roles = [r for _p, _n, r in parts]
         if len(parts) >= 3 and ("techo" in roles or "suelo" in roles) and roles.count("pared") >= 1:
             amb[k] = parts

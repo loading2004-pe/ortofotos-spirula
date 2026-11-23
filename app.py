@@ -549,6 +549,7 @@ class App(tk.Tk):
                    command=self._render_linked).pack(side="left", padx=4)
         ttk.Button(bar2, text="↔ Voltear vista", command=lambda: self._adjust(flip=True)).pack(side="left")
         ttk.Button(bar2, text="⟳ Girar 90°", command=lambda: self._adjust(rot=1)).pack(side="left", padx=4)
+        ttk.Button(bar2, text="🧊 Visor 6 caras", command=self._open_cube_viewer).pack(side="left")
         self.link_lbl = ttk.Label(right, text="", foreground="#555")
         self.link_lbl.pack(anchor="w", pady=(4, 0))
         self.rev_name = ttk.Label(right, text="", font=("Segoe UI", 12, "bold"))
@@ -804,6 +805,34 @@ class App(tk.Tk):
                              if self._link_done < self._link_total
                              else f"Listo: {self._link_total} ortofoto(s) · última: {name} {det}")
         self.q.put(("log", f"{time.strftime('%H:%M:%S')} {name}: {st} {det}"))
+
+    def _ply_for(self, name, d):
+        """(.ply, entrada del manifiesto) de una imagen de la carpeta de revisión."""
+        man = pl.read_manifest(d)
+        entry = man.get(name)
+        ply = entry.get("ply") if entry else None
+        if not ply:   # ortofoto de '1. Procesar': su .ply está en _orto_trabajo
+            src = pl.newest_ply(os.path.join(pl.work_dir(self.cfg, self.root_var.get(), name), "runs"))
+            limpio = os.path.join(pl.side_dirs(self.cfg, self.root_var.get())[1], name + ".ply")
+            ply = limpio if os.path.isfile(limpio) else src
+            entry = {"ply": ply, "flip": False, "rot": 0}
+        return ply, entry
+
+    def _open_cube_viewer(self):
+        i = self._cur()
+        if i is None:
+            messagebox.showinfo("Visor 6 caras", "Elige primero una imagen de la lista.")
+            return
+        d = self._results_dir()
+        fname = os.path.basename(self.files[i])
+        name = os.path.splitext(fname[2:] if fname.lower().startswith("x_") else fname)[0]
+        ply, entry = self._ply_for(name, d)
+        if not ply or not os.path.isfile(ply):
+            messagebox.showinfo("Visor 6 caras", "No encuentro el .ply de esta imagen.")
+            return
+        root = self.root_var.get()
+        wd = pl.work_dir(self.cfg, root, name) if root else None
+        CubeViewer(self, name, ply, wd if (wd and os.path.isdir(wd)) else None, d, entry)
 
     def _adjust(self, flip=False, rot=0):
         """Voltea o gira 90° la ortofoto seleccionada y la vuelve a renderizar."""
@@ -1471,6 +1500,217 @@ def diag(root):
             f.write("render_ortho OK\n")
         except Exception:
             f.write(traceback.format_exc())
+
+
+class CubeViewer(tk.Toplevel):
+    """Visor de ambientes de 6 caras: planta con las paredes detectadas, vista previa de
+    cada cara y elección del tipo (fachada / interior / exterior) y del Norte."""
+    TH = 230
+
+    def __init__(self, app, name, ply, wd, results_dir, entry):
+        super().__init__(app)
+        self.app, self.name, self.ply, self.wd, self.results = app, name, ply, wd, results_dir
+        self.entry = entry or {}
+        self.title(f"Visor 6 caras — {name}")
+        self.geometry("1260x760")
+        import cubo
+        conf = dict(self.entry.get("cubo") or (cubo.load_config(wd) if wd else {}))
+        self.tipo = tk.StringVar(value=conf.get("tipo", "auto"))
+        self.norte = int(conf.get("norte", 0))
+        sel = conf.get("caras")
+        self.caras = {k: tk.BooleanVar(value=(k in sel) if sel else True) for k in cubo.CARAS}
+        self.model = self.an = self.cams = self.ups = None
+        self._imgs = []
+        left = ttk.Frame(self, padding=8)
+        left.pack(side="left", fill="y")
+        ttk.Label(left, text="Planta (corte a media altura)", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        self.plan = tk.Canvas(left, width=520, height=520, bg="#222", highlightthickness=0)
+        self.plan.pack(pady=4)
+        self.info = ttk.Label(left, text="Cargando modelo…", wraplength=520, justify="left")
+        self.info.pack(anchor="w")
+        right = ttk.Frame(self, padding=8)
+        right.pack(side="left", fill="both", expand=True)
+        box = ttk.LabelFrame(right, text="  ¿Cómo se renderiza?  ", padding=8)
+        box.pack(fill="x")
+        self.auto_rb = ttk.Radiobutton(box, text="Automático", value="auto", variable=self.tipo,
+                                       command=self._preview)
+        self.auto_rb.pack(anchor="w")
+        for v, lab in (("fachada", "Fachada / puerta / ventana (método normal: un plano, enderezado)"),
+                       ("interior", "Interior de 6 caras (4 paredes vistas desde dentro + techo + suelo)"),
+                       ("exterior", "Exterior de 6 caras (4 elevaciones vistas desde fuera + cubierta)")):
+            ttk.Radiobutton(box, text=lab, value=v, variable=self.tipo, command=self._preview).pack(anchor="w")
+        r = ttk.Frame(box)
+        r.pack(fill="x", pady=(6, 0))
+        ttk.Button(r, text="⟳ Girar Norte", command=self._rot_north).pack(side="left")
+        ttk.Label(r, text="  Caras:").pack(side="left")
+        for k in cubo.CARAS:
+            ttk.Checkbutton(r, text=k, variable=self.caras[k], command=self._preview).pack(side="left")
+        r2 = ttk.Frame(box)
+        r2.pack(fill="x", pady=(8, 0))
+        self.btn_go = ttk.Button(r2, text="✓ Guardar y renderizar en alta", command=self._render_final,
+                                 state="disabled")
+        self.btn_go.pack(side="left")
+        ttk.Button(r2, text="Cerrar", command=self.destroy).pack(side="left", padx=8)
+        self.status = ttk.Label(r2, text="", foreground="#1f5fa8")
+        self.status.pack(side="left", padx=8)
+        self.grid_f = ttk.Frame(right)
+        self.grid_f.pack(fill="both", expand=True, pady=(8, 0))
+        threading.Thread(target=self._load, daemon=True).start()
+
+    def _eff_tipo(self):
+        t = self.tipo.get()
+        return self.an["tipo_auto"] if t == "auto" else t
+
+    def _load(self):
+        import render_ortho as ro
+        import cubo
+        try:
+            self.model = ro.read_splat_ply(self.ply)
+            cams, ups, _o = pl.find_cams(self.name, self.ply, self.app.cfg,
+                                         self.app.root_var.get() or None, self.app._cam_store())
+            self.cams, self.ups = cams, ups
+            self.an = cubo.analyze(self.model, cams, ups)
+        except Exception as e:
+            err = f"Error: {e}"
+            self.after(0, lambda: self.info.config(text=err))
+            return
+        self.after(0, self._loaded)
+
+    def _loaded(self):
+        nombres = {"fachada": "fachada / puerta / ventana", "interior": "interior de 6 caras",
+                   "exterior": "exterior de 6 caras"}
+        self.auto_rb.config(text=f"Automático  (detectado: {nombres[self.an['tipo_auto']]})")
+        self.info.config(text=f"Detección: {nombres[self.an['tipo_auto']]} — {self.an['motivo']}.\n"
+                              "Cada pared está marcada con su nombre; con «Girar Norte» cambias cuál "
+                              "es el Norte. Los puntos blancos son las posiciones de la cámara.")
+        self.btn_go.state(["!disabled"])
+        self._preview()
+
+    def _rot_north(self):
+        self.norte = (self.norte + 1) % 4
+        self._preview()
+
+    def _preview(self):
+        if self.an is None:
+            return
+        self.status.config(text="Generando vista previa…")
+        tipo, norte = self._eff_tipo(), self.norte
+        caras = [k for k, v in self.caras.items() if v.get()]
+
+        def work():
+            import render_ortho as ro
+            import cubo
+            pc = cubo.plan_cam(self.an, norte)
+            if getattr(self, "_plan_model", None) is None:
+                self._plan_model = cubo.plan_model(self.model, self.an)
+            plan = ro.render(self._plan_model, pc, 520, 0.0, background=(34, 34, 34))
+            faces = {}
+            if tipo in ("interior", "exterior"):
+                faces = cubo.render_faces(self.model, self.an, tipo, norte, caras, long_side=self.TH,
+                                          background=(34, 34, 34), log=lambda *_: None)
+            self.after(0, lambda: self._show(plan, pc, faces, tipo))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show(self, plan, pc, faces, tipo):
+        from PIL import ImageTk
+        import cubo
+        self._imgs = []
+        cv = self.plan
+        cv.delete("all")
+        W, H = plan.size
+        ti = ImageTk.PhotoImage(plan)
+        self._imgs.append(ti)
+        cv.create_image(0, 0, image=ti, anchor="nw")
+        if self.cams is not None and len(self.cams):
+            for x, y in cubo.project(pc, self.cams, W, H):
+                cv.create_oval(x - 2, y - 2, x + 2, y + 2, fill="white", outline="")
+        cube = tipo in ("interior", "exterior")
+        colors = {"Norte": "#ff5252", "Este": "#ffd740", "Sur": "#69f0ae", "Oeste": "#40c4ff"}
+        for nm, (a, b) in cubo.wall_segments(self.an, self.norte).items():
+            (x0, y0), (x1, y1) = cubo.project(pc, [a, b], W, H)
+            cv.create_line(x0, y0, x1, y1, fill=colors[nm], width=3 if cube else 1,
+                           dash=() if cube else (4, 4))
+            mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+            cx, cy = W / 2, H / 2
+            lx, ly = mx + (mx - cx) * 0.12, my + (my - cy) * 0.12
+            cv.create_text(lx, ly, text=nm, fill=colors[nm], font=("Segoe UI", 11, "bold"))
+        cv.create_text(W - 20, 18, text="N ↑", fill="#ff5252", font=("Segoe UI", 12, "bold"))
+        for w in self.grid_f.winfo_children():
+            w.destroy()
+        if not cube:
+            ttk.Label(self.grid_f, text="Se renderiza como siempre: se busca el plano principal "
+                                        "(la puerta, ventana o fachada) y se endereza.",
+                      wraplength=600).pack(anchor="w")
+        else:
+            order = (["Techo", "Norte", "Este", "Sur", "Oeste", "Suelo"] if tipo == "interior"
+                     else ["Techo", "Norte", "Este", "Sur", "Oeste"])
+            for i, k in enumerate(order):
+                cell = ttk.Frame(self.grid_f)
+                cell.grid(row=i // 3, column=i % 3, padx=6, pady=6, sticky="n")
+                lab = k
+                if tipo == "exterior":
+                    lab = "Cubierta" if k == "Techo" else "Elevación " + k
+                elif k in colors:
+                    lab = "Pared " + k
+                ttk.Label(cell, text=lab, font=("Segoe UI", 10, "bold")).pack(anchor="w")
+                im = faces.get(k)
+                if im is None:
+                    ttk.Label(cell, text="(no incluida)", foreground="#888").pack()
+                    continue
+                im = im.copy()
+                im.thumbnail((self.TH, self.TH))
+                t = ImageTk.PhotoImage(im)
+                self._imgs.append(t)
+                tk.Label(cell, image=t, bg="#222").pack()
+        self.status.config(text="")
+
+    def _conf(self):
+        caras = [k for k, v in self.caras.items() if v.get()]
+        c = {"tipo": self.tipo.get(), "norte": self.norte}
+        if len(caras) < 6:
+            c["caras"] = caras
+        return c
+
+    def _render_final(self):
+        import cubo
+        conf = self._conf()
+        if self.wd:
+            cubo.save_config(self.wd, conf)
+        man = pl.read_manifest(self.results)
+        e = man.get(self.name) or {"ply": self.ply, "flip": False, "rot": 0}
+        e["cubo"] = conf
+        man[self.name] = e
+        try:
+            pl.write_manifest(self.results, man)
+        except OSError:
+            pass
+        self.btn_go.state(["disabled"])
+        self.status.config(text="Renderizando en alta… (puede tardar unos minutos)")
+        out_png = os.path.join(self.results, self.name + ".png")
+        cfg = dict(self.app.cfg)
+        cfg["_cam_store"] = self.app._cam_store()
+
+        def work():
+            try:
+                for old in (out_png, os.path.join(self.results, "x_" + self.name + ".png")):
+                    if os.path.exists(old):
+                        os.remove(old)
+                info = pl.render_auto(self.ply, out_png, self.name, cfg, wd=self.wd, cams=self.cams,
+                                      ups=self.ups, conf=conf, flip=bool(e.get("flip")),
+                                      rot90=int(e.get("rot", 0)))
+                msg = f"Listo: {info.get('modo')}" + (f" · caras en «{os.path.basename(info['carpeta'])}»"
+                                                      if info.get("carpeta") else "")
+            except Exception as ex:
+                msg = f"Error: {ex}"
+            self.after(0, lambda: self._done(msg))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _done(self, msg):
+        self.status.config(text=msg)
+        self.btn_go.state(["!disabled"])
+        self.app.q.put(("log", f"{self.name}: {msg}"))
+        self.app._thumbs.clear()
+        self.app.load_review()
 
 
 def main():

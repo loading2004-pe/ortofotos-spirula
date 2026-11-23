@@ -16,7 +16,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FILES = ["app.py", "pipeline.py", "render_ortho.py", "ply_convert.py", "cli.py", "updater.py",
-         "app_version.py"]
+         "app_version.py", "cubo.py"]
 
 
 def _k(v):

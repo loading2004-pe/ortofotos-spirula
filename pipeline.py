@@ -53,7 +53,8 @@ DEFAULT_CONFIG = {
     "render_margen": 0.05,
     "nombre_minusculas": True,
     "min_videos": 2,
-    "min_fotos": 8,                 # fotos mínimas para procesar una carpeta solo con fotos
+    "min_fotos": 8,
+    "render_detectar_cubo": True,   # interiores/exteriores de 6 caras: una ortofoto por cara                 # fotos mínimas para procesar una carpeta solo con fotos
     "entrenar_cache_ram": True,     # --cache-images cpu si caben en RAM (no cambia el resultado)
     "url_actualizaciones": "",      # vacío = servidor por defecto
     "actualizar_auto": True,
@@ -336,21 +337,12 @@ class Runner:
                     raise Cancelled()
                 self._set(job, "renderizando ortofoto")
                 t = time.time()
-                from render_ortho import render_run
                 for old in (out_png, os.path.join(self.results, "x_" + job.name + ".png")):
                     if os.path.exists(old):
                         os.remove(old)
-                info = render_run(ply, out_png, workspace=ds if os.path.isdir(ds) else None,
-                                  run_dir=os.path.join(runs, "modelo"),
-                                  long_side=int(cfg["render_lado_largo_px"]),
-                                  front_clip=cfg["render_recorte_frontal"] or None,
-                                  vertical=cfg["render_plano_vertical"],
-                                  auto_straighten=cfg["render_enderezar"],
-                                  transparent=cfg["render_fondo_transparente"],
-                                  background=tuple(cfg.get("render_fondo_color", (0, 0, 0))),
-                                  save_cams=(os.path.join(cfg["_cam_store"], job.name + ".json")
-                                             if cfg.get("_cam_store") else None),
-                                  margin=cfg["render_margen"])
+                info = render_auto(ply, out_png, job.name, cfg, wd=jdir,
+                                   workspace=ds if os.path.isdir(ds) else None,
+                                   run_dir=os.path.join(runs, "modelo"))
                 job.times["render"] = time.time() - t
             job.result = out_png
             tt = sum(job.times.values())
@@ -360,7 +352,8 @@ class Runner:
                              + "\n")
             except OSError:
                 pass
-            self._set(job, "listo", f"{info['size'][0]}x{info['size'][1]} px, "
+            modo = "" if info.get("modo") == "fachada" else f"{info.get('modo')}, "
+            self._set(job, "listo", f"{modo}{info['size'][0]}x{info['size'][1]} px, "
                                     f"giro {info['roll_fix_deg']:+.2f}°, {tt/60:.1f} min{origen}")
             self.log(f"OK  {job.name}")
         except Cancelled:
@@ -682,7 +675,6 @@ def write_manifest(out_dir, man):
 def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, cancel=None):
     """Renderiza [(ruta_ply, nombre)] en out_dir sin Spirula ni carpetas de 'Procesar'.
     on_item(nombre, estado, detalle). Guarda ajustes por imagen (voltear/girar) en un manifiesto."""
-    from render_ortho import render_run
     os.makedirs(out_dir, exist_ok=True)
     man = read_manifest(out_dir)
     lock = threading.Lock()
@@ -702,19 +694,18 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
                 if os.path.exists(old):
                     os.remove(old)
             t = time.time()
-            info = render_run(ply, out_png, cams=cams, ups=ups, flip=flip, rot90=rot,
-                              long_side=int(cfg["render_lado_largo_px"]),
-                              front_clip=cfg["render_recorte_frontal"] or None,
-                              vertical=cfg["render_plano_vertical"],
-                              auto_straighten=cfg["render_enderezar"],
-                              transparent=cfg["render_fondo_transparente"],
-                              margin=cfg["render_margen"],
-                              background=tuple(cfg.get("render_fondo_color", (0, 0, 0))),
-                              log=lambda *_: None)
+            wd = work_dir(cfg, root, name) if root else None
+            conf = prev.get("cubo")     # None = lo lee de la carpeta de trabajo (si existe)
+            info = render_auto(ply, out_png, name, cfg, wd=wd if (wd and os.path.isdir(wd)) else None,
+                               cams=cams, ups=ups, conf=conf, flip=flip, rot90=rot)
             with lock:
                 man[name] = {"ply": ply, "flip": flip, "rot": rot}
+                if prev.get("cubo") is not None:
+                    man[name]["cubo"] = prev["cubo"]
                 write_manifest(out_dir, man)
             nota = "con cámaras" if cams is not None else "lado detectado automáticamente"
+            if info.get("modo") and info["modo"] != "fachada":
+                nota = info["modo"]
             on_item(name, "listo", f"{info['size'][0]}x{info['size'][1]} px, "
                                    f"{time.time() - t:.0f} s, {nota}")
         except Exception as e:
@@ -722,6 +713,56 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
 
     with ThreadPoolExecutor(max_workers=max(1, int(cfg.get("paralelo_render", 2)))) as ex:
         list(ex.map(one, items))
+
+
+def render_auto(ply, out_png, name, cfg, wd=None, cams=None, ups=None, workspace=None, run_dir=None,
+                conf=None, flip=False, rot90=0, log=lambda *_: None):
+    """Render de una carpeta: si es un ambiente de 6 caras (o así se indicó en el visor),
+    una ortofoto por cara + lámina del cubo; si no, la ortofoto normal de siempre."""
+    import render_ortho as ro
+    import cubo
+    model = ro.read_splat_ply(ply)
+    if cams is None and workspace:
+        cams, ups = ro.cams_from_workspace(workspace, run_dir or os.path.dirname(ply), log)
+    if cfg.get("_cam_store") and cams is not None:
+        try:
+            ro.save_cams_json(os.path.join(cfg["_cam_store"], name + ".json"), cams, ups)
+        except OSError:
+            pass
+    conf = dict(conf if conf is not None else (cubo.load_config(wd) if wd else {}))
+    tipo = conf.get("tipo", "auto")
+    bg = tuple(cfg.get("render_fondo_color", (0, 0, 0)))
+    an = None
+    if tipo == "auto" and cfg.get("render_detectar_cubo", True):
+        an = cubo.analyze(model, cams, ups)
+        tipo = an["tipo_auto"]
+    elif tipo in ("interior", "exterior"):
+        an = cubo.analyze(model, cams, ups)
+    fdir = cubo.faces_dir(os.path.dirname(os.path.abspath(out_png)), name)
+    if tipo in ("interior", "exterior"):
+        if wd:
+            try:
+                with open(os.path.join(wd, "cubo_analisis.json"), "w", encoding="utf-8") as f:
+                    json.dump(an, f, indent=1)
+            except OSError:
+                pass
+        info = cubo.render_cube_job(model, an, tipo, int(conf.get("norte", 0)), out_png, name,
+                                    caras=conf.get("caras"), long_side=int(cfg["render_lado_largo_px"]),
+                                    background=bg, margin=cfg["render_margen"], log=log)
+        info["roll_fix_deg"] = 0.0
+        info["modo"] = f"{tipo} · {len(info['caras'])} caras"
+        return info
+    if os.path.isdir(fdir):
+        shutil.rmtree(fdir, ignore_errors=True)
+    info = ro.render_run(ply, out_png, cams=cams, ups=ups, flip=flip, rot90=rot90,
+                         long_side=int(cfg["render_lado_largo_px"]),
+                         front_clip=cfg["render_recorte_frontal"] or None,
+                         vertical=cfg["render_plano_vertical"],
+                         auto_straighten=cfg["render_enderezar"],
+                         transparent=cfg["render_fondo_transparente"],
+                         background=bg, margin=cfg["render_margen"], log=log, model=model)
+    info["modo"] = "fachada"
+    return info
 
 
 def newest_ply(runs_dir):

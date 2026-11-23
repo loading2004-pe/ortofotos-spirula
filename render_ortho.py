@@ -650,8 +650,8 @@ def render_run(ply_path, out_path, workspace=None, run_dir=None, long_side=4000,
                front_clip=0.35, vertical=True, auto_straighten=True,
                transparent=False, margin=0.03, background=(0, 0, 0), log=print,
                preview_side=1600, cams=None, ups=None, flip=False, rot90=0,
-               save_cams=None, auto_side=True) -> dict:
-    model = read_splat_ply(ply_path)
+               save_cams=None, auto_side=True, model=None) -> dict:
+    model = model if model is not None else read_splat_ply(ply_path)
     if cams is None and workspace:
         cams, ups = cams_from_workspace(workspace, run_dir or os.path.dirname(ply_path), log)
     if save_cams and cams is not None:

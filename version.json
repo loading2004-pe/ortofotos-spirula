@@ -1,15 +1,16 @@
 {
- "version": "2026.11.20.4",
- "fecha": "2026-11-20 21:35",
- "notas": "Pestaña '3. Convertir nube' más simple: dos botones (Pasar a CloudCompare/ReCap y Traer de vuelta).",
+ "version": "2026.11.23.1",
+ "fecha": "2026-11-23 09:20",
+ "notas": "Interiores y exteriores de 6 caras: se detectan solos y se renderiza cada cara (paredes N/E/S/O, techo, suelo) más el cubo desplegado. Nuevo botón '🧊 Visor 6 caras' en 2. Revisar.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "dc5f8e9b1e8ecb75f246e4b7586df1c4c0b1137090316f8d7bf52805b1ae8ae1",
-  "pipeline.py": "82c4675be733b201378b4e8711ff91fd0df78f3ef2760e07332197e14358a880",
-  "render_ortho.py": "25610558c4753526c266ce5b041880d1452f5a27d85b44f922ca5d88cbefaeac",
+  "app.py": "51bed3c72ec8959cd68f514662ae26174b8bf4b0251678c0f974e6cafacda01d",
+  "pipeline.py": "aafa37ca6901da5ffe785138a6e65d5d28f0c6bb1aa228bf44a621833d9b2d96",
+  "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "6c4c70ec5031671decd081035c1ac795d7210e89b1156dd7bee68438b675c154"
+  "app_version.py": "106a965a45351665bc189a6efb3c68ddccef1eef8b438ceaf4a4470d440d622c",
+  "cubo.py": "46fd34bd2460c36c73c9a4677228c8dc52de81e85b6e2bd2d0be7ce7a8d09575"
  }
 }

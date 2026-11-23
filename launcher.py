@@ -20,7 +20,7 @@ APP_DIR = os.path.dirname(sys.executable) if FROZEN else HERE
 if not FROZEN and HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-MODULES = ("app", "pipeline", "render_ortho", "ply_convert", "cli", "updater", "app_version")
+MODULES = ("app", "pipeline", "render_ortho", "ply_convert", "cli", "updater", "app_version", "cubo")
 
 
 def _writable(d):
@@ -99,7 +99,7 @@ def _ask_update(man):
 
 
 def _bundle_hint():  # pragma: no cover - nunca se ejecuta; solo para que PyInstaller lo incluya
-    import app, pipeline, render_ortho, ply_convert, cli, updater, app_version  # noqa
+    import app, pipeline, render_ortho, ply_convert, cli, updater, app_version, cubo  # noqa
     import zipfile, hashlib, ssl, urllib.request, urllib.parse, http.client, csv, uuid, glob  # noqa
     import struct, shutil, tempfile, gzip, base64, platform, webbrowser, socket, datetime  # noqa
     import statistics, random, itertools, functools, textwrap, decimal, fractions, math  # noqa

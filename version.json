@@ -1,16 +1,16 @@
 {
- "version": "2026.11.23.13",
- "fecha": "2026-11-23 15:28",
- "notas": "Un .ply vacío o dañado ya no detiene todo el ambiente: se renderiza el resto y se avisa cuál falló.",
+ "version": "2026.11.23.14",
+ "fecha": "2026-11-23 15:39",
+ "notas": "Visor 6 caras y ambientes: Enderezar sin límite (−180° a 180°), botones ⟲ 90° / ⟳ 90°, botones − + de 0,1° y casilla para escribir el valor exacto. Girar e Inclinar con más rango.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "c6261231ca60eab4f0847488c087f0d87eaba5942931ec4a03b9cf92bc8e7256",
+  "app.py": "8378d923fd11aff17ebd2d8305e334749d359c912c119ff396b92888c390bb40",
   "pipeline.py": "d0acc0855d3b76f22d3351f87e176e663bc617ae58ba61604bba32f61b2eb310",
   "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "fe4d66312851e744967c28551d0023ac6de1a8fdc6c5e13d1d3f9648b5a86a55",
+  "app_version.py": "d8c7ad796deb08c8f7558242bdf0bec71399947a26d1aa9fdfe0da4f0a0ea7ed",
   "cubo.py": "c825fff64ff8940d28d941e6d78ecc0fc938982a3dd9a1f0556a4826c3e190f3"
  }
 }

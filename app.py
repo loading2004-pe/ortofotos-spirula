@@ -1616,6 +1616,35 @@ def diag(root):
             f.write(traceback.format_exc())
 
 
+class _ValBox:
+    """Casilla para escribir el valor exacto de un control (Enter para aplicar)."""
+
+    def __init__(self, parent, on_value):
+        self.var = tk.StringVar(value="0")
+        self.e = ttk.Entry(parent, textvariable=self.var, width=8, justify="right")
+        self._on = on_value
+        self.e.bind("<Return>", self._apply)
+        self.e.bind("<FocusOut>", self._apply)
+
+    def _apply(self, _e=None):
+        txt = self.var.get().replace("°", "").replace("%", "").replace(",", ".").strip()
+        try:
+            self._on(float(txt))
+        except ValueError:
+            pass
+
+    def config(self, text=""):
+        try:
+            focused = self.e.focus_get() is self.e
+        except (KeyError, tk.TclError):
+            focused = False
+        if not focused:
+            self.var.set(text)
+
+    def pack(self, **kw):
+        self.e.pack(**kw)
+
+
 class CubeViewer(tk.Toplevel):
     """Alinear ambientes de 6 caras: ventana grande, todo en vivo.
     Izquierda: planta (clic en una pared para elegirla, arrastrarla la mueve, el punto blanco
@@ -1623,9 +1652,9 @@ class CubeViewer(tk.Toplevel):
     COLORS = {"Norte": "#ff5252", "Este": "#ffd740", "Sur": "#69f0ae", "Oeste": "#40c4ff",
               "Techo": "#e0e0e0", "Suelo": "#bcaaa4"}
     TIPOS = (("auto", "Detectar"), ("fachada", "Normal"), ("interior", "Interior"), ("exterior", "Exterior"))
-    SLIDERS = (("giro", "Girar", -45, 45, "°"), ("incl", "Inclinar", -30, 30, "°"),
-               ("rot", "Enderezar", -20, 20, "°"), ("mover", "Mover plano", -15, 15, "%"),
-               ("ampliar", "Encuadre", -40, 60, "%"))
+    SLIDERS = (("giro", "Girar", -90, 90, "°"), ("incl", "Inclinar", -60, 60, "°"),
+               ("rot", "Enderezar", -180, 180, "°"), ("mover", "Mover plano", -30, 30, "%"),
+               ("ampliar", "Encuadre", -50, 100, "%"))
 
     def __init__(self, app, name, ply, wd, results_dir, entry):
         super().__init__(app)
@@ -1736,14 +1765,22 @@ class CubeViewer(tk.Toplevel):
             head = ttk.Frame(row)
             head.pack(fill="x")
             ttk.Label(head, text=lab, font=("Segoe UI", 10, "bold")).pack(side="left")
-            val = ttk.Label(head, text="0", width=8, anchor="e")
+            val = _ValBox(head, lambda x, k=key: self._set_val(k, x))
             val.pack(side="right")
+            ttk.Button(head, text="+", width=2, command=lambda k=key: self._nudge(k, 1)).pack(side="right")
+            ttk.Button(head, text="−", width=2, command=lambda k=key: self._nudge(k, -1)).pack(side="right")
             v = tk.DoubleVar(value=0.0)
             sc = ttk.Scale(row, from_=lo, to=hi, variable=v, length=360,
                            command=lambda _x, k=key: self._slid(k))
             sc.pack(fill="x")
             sc.bind("<Double-Button-1>", lambda e, k=key: self._set_val(k, 0.0))
             self.sv[key] = (v, val, unit)
+        r90 = ttk.Frame(right)
+        r90.pack(anchor="w", pady=(8, 0))
+        ttk.Label(r90, text="Girar la imagen:").pack(side="left")
+        ttk.Button(r90, text="⟲ 90°", command=lambda: self._nudge("rot", 900)).pack(side="left", padx=4)
+        ttk.Button(r90, text="⟳ 90°", command=lambda: self._nudge("rot", -900)).pack(side="left")
+        ttk.Label(r90, text="  (o escribe el valor y Enter)", foreground="#666").pack(side="left")
         ttk.Button(right, text="↺ Reiniciar esta cara", command=self._reset_face).pack(anchor="w", pady=(12, 0))
         self.adv_on = tk.BooleanVar(value=bool(self.manual))
         ttk.Checkbutton(right, text="Avanzado (toda la caja)", variable=self.adv_on,
@@ -2051,12 +2088,12 @@ class CubeViewer(tk.Toplevel):
             d = math.degrees(ang - self._drag[1])
             self._drag = ("rot", ang)
             cur = float(self.ajustes.get(self.sel, {}).get("giro", 0))
-            self._set_val("giro", max(-45.0, min(45.0, cur - d)))
+            self._set_val("giro", max(-90.0, min(90.0, cur - d)))
             return
         _k, nm, p0, mv0 = self._drag
         cam = cubo.face_cams(self._use(), self._cube_tipo(), self.norte)[nm][0]
         delta = float((self._world(e.x, e.y) - p0) @ cam.normal) / max(self._span(), 1e-9) * 100
-        self._set_val("mover", max(-15.0, min(15.0, mv0 + delta)))
+        self._set_val("mover", max(-30.0, min(30.0, mv0 + delta)))
 
     def _release(self, _e):
         if self._drag:
@@ -2084,9 +2121,15 @@ class CubeViewer(tk.Toplevel):
             cell.configure(relief="solid" if kk == k else "flat")
         self._changed()
 
+    def _nudge(self, key, steps):
+        cur = float(self.ajustes.get(self.sel, {}).get(key, 0))
+        self._set_val(key, cur + 0.1 * steps)
+
     def _set_val(self, key, val):
         v, lab, unit = self.sv[key]
         val = round(float(val), 1)
+        if key == "rot":
+            val = round(((val + 180.0) % 360.0) - 180.0, 1)
         v.set(val)
         lab.config(text=f"{val:+.1f}{unit}")
         adj = self.ajustes.setdefault(self.sel, {})
@@ -2359,13 +2402,21 @@ class AmbienteViewer(tk.Toplevel):
             head = ttk.Frame(row)
             head.pack(fill="x")
             ttk.Label(head, text=lab, font=("Segoe UI", 10, "bold")).pack(side="left")
-            val = ttk.Label(head, text="0", width=8, anchor="e")
+            val = _ValBox(head, lambda x, k=key: self._set_val(k, x))
             val.pack(side="right")
+            ttk.Button(head, text="+", width=2, command=lambda k=key: self._nudge(k, 1)).pack(side="right")
+            ttk.Button(head, text="−", width=2, command=lambda k=key: self._nudge(k, -1)).pack(side="right")
             v = tk.DoubleVar(value=0.0)
             sc = ttk.Scale(row, from_=lo, to=hi, variable=v, length=360, command=lambda _x, k=key: self._slid(k))
             sc.pack(fill="x")
             sc.bind("<Double-Button-1>", lambda e, k=key: self._set_val(k, 0.0))
             self.sv[key] = (v, val, unit)
+        r90 = ttk.Frame(right)
+        r90.pack(anchor="w", pady=(8, 0))
+        ttk.Label(r90, text="Girar la imagen:").pack(side="left")
+        ttk.Button(r90, text="⟲ 90°", command=lambda: self._nudge("rot", 900)).pack(side="left", padx=4)
+        ttk.Button(r90, text="⟳ 90°", command=lambda: self._nudge("rot", -900)).pack(side="left")
+        ttk.Label(r90, text="  (o escribe el valor y Enter)", foreground="#666").pack(side="left")
         ttk.Button(right, text="↺ Reiniciar esta parte", command=self._reset).pack(anchor="w", pady=(12, 0))
         ttk.Label(right, text=f"\nSe guarda en:\n{self.results}", wraplength=360,
                   foreground="#1f5fa8").pack(anchor="w")
@@ -2483,9 +2534,15 @@ class AmbienteViewer(tk.Toplevel):
             cell.configure(relief="solid" if k == n else "flat")
         self._changed()
 
+    def _nudge(self, key, steps):
+        cur = float(self.ajustes.get(self.sel, {}).get(key, 0))
+        self._set_val(key, cur + 0.1 * steps)
+
     def _set_val(self, key, val):
         v, lab, unit = self.sv[key]
         val = round(float(val), 1)
+        if key == "rot":
+            val = round(((val + 180.0) % 360.0) - 180.0, 1)
         v.set(val)
         lab.config(text=f"{val:+.1f}{unit}")
         adj = self.ajustes.setdefault(self.sel, {})

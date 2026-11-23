@@ -312,6 +312,18 @@ class App(tk.Tk):
     def do_run(self, only=None, cfg_override=None):
         if not self.jobs:
             self.do_scan()
+        root = self.root_var.get()
+        if only is None and os.path.isdir(root) and \
+                not any(j.status not in ("vacía", "vacia") for j in self.jobs):
+            plys = pl.list_plys(root, recursive=False)
+            if plys:   # carpeta de modelos .ply (no de videos): se renderizan directamente
+                if messagebox.askyesno("Procesar", f"Esta carpeta no tiene videos pero sí {len(plys)} modelos "
+                                       ".ply.\n\n¿Renderizarlos ahora con el tipo «"
+                                       f"{self.modo_var.get()}»?\n(Si son recortes de un mismo ambiente "
+                                       "— CARA…, LADO…, PLANTA, TECHO — se orientan juntos.)"):
+                    self.nb.select(self.review_tab)
+                    self._start_linked(plys, root)
+                return
         if not self.jobs:
             return
         solo = bool((cfg_override or {}).get("_solo_render"))

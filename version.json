@@ -1,16 +1,16 @@
 {
- "version": "2026.11.23.9",
- "fecha": "2026-11-23 14:21",
- "notas": "Interiores por partes: si una carpeta tiene recortes del mismo ambiente (CARA A, CARA B, LADO…, PLANTA, TECHO), cada cara se orienta y endereza sola usando las demás (techo y planta dan la vertical). Girar 90° ahora es instantáneo (no vuelve a renderizar).",
+ "version": "2026.11.23.10",
+ "fecha": "2026-11-23 14:24",
+ "notas": "1. Procesar acepta carpetas con modelos .ply (sin videos): los renderiza directamente; si son recortes de un ambiente (CARA, LADO, PLANTA, TECHO) se orientan juntos. Girar 90° instantáneo.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "ce866612575f85a1b3486f234c14427a64414b3053d40b3c669ce1f9f8e58a9b",
+  "app.py": "3861ccb5dfa22d2deff19e435210e5d58c4d59a43b2fc3d8865a2a95b316ec27",
   "pipeline.py": "6615a265d678d4de89b0d7ebbdd3a2fe5f66aba3b821c6d0b86b2b0925061119",
   "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "51f5b12f6139ec0c8edefe89da7e7017c70252b0c4e2bb93f825be5c4e1b1167",
+  "app_version.py": "61b4013cbb7d05c5cd6d3dcd5a3214b75953f8a383c2da07fbc6f40dc4ff2da7",
   "cubo.py": "d15382bc496bede3d807c28fa1fd0f4378d112a63bf1e7254c6f5ed84d30a7b9"
  }
 }

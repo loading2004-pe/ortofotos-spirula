@@ -836,7 +836,7 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None):
     ref_dir = cams[ref_wall] if ref_wall else d0
     built = {}
     rng = np.random.default_rng(0)
-    cos_lim = math.cos(math.radians(30))
+    cos_lim = math.cos(math.radians(10))     # paredes a escuadra con el ambiente (±10°)
     cos_h = math.cos(math.radians(12))
     for name, D in cams.items():
         P = allp[name]

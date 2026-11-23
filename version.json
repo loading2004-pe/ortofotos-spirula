@@ -1,7 +1,7 @@
 {
- "version": "2026.11.23.18",
- "fecha": "2026-11-23 16:39",
- "notas": "Ambientes: cada pared ahora incluye TODO lo que trae su recorte (muebles, columnas), como se ve en SuperSplat, sin cortarlos. El visor 6 caras muestra la calidad real (modelo completo al soltar los controles), abre la parte que elegiste, respeta los giros de 90° y muestra el error si algo falla.",
+ "version": "2026.11.23.19",
+ "fecha": "2026-11-23 16:46",
+ "notas": "Ambientes: las paredes quedan a escuadra con el ambiente (de frente, sin verse en diagonal). Corrige ELEV. 2 y ELEV. 4 que salían giradas.",
  "min_lanzador": 1,
  "archivos": {
   "app.py": "55a32be15b6e66257c07981f8b102ba9c71c6c2cb16064d447b2ba2926e17096",
@@ -10,7 +10,7 @@
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "e8e02e1d1fa98597f8a4b4a1c1908da2c0fea8767f096966af4a643581cfe5b8",
-  "cubo.py": "b8417e75fd0fae5de2e7ac6a98e9083be80ac8f228f2251c12436fca54bd02f3"
+  "app_version.py": "54455f82095fd673bd43dd60eb2c5b8b4b2de13523d76778ec48e3496e255e79",
+  "cubo.py": "bec5ff533dc9d8755d04b0f3fc82b9673b08e9d36ab3bcc66dc7b14031d98784"
  }
 }

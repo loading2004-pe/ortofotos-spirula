@@ -889,7 +889,7 @@ class App(tk.Tk):
         CubeViewer(self, name, ply, wd if (wd and os.path.isdir(wd)) else None, d, entry)
 
     def _adjust(self, flip=False, rot=0):
-        """Voltea o gira 90° la ortofoto seleccionada y la vuelve a renderizar."""
+        """Gira 90° (al instante, sobre la imagen) o voltea (re-render) la ortofoto seleccionada."""
         i = self._cur()
         if i is None:
             return
@@ -911,6 +911,26 @@ class App(tk.Tk):
         entry["rot"] = (int(entry.get("rot", 0)) + rot) % 4
         man[name] = entry
         pl.write_manifest(d, man)
+        if rot and not flip and not os.path.isdir(self._faces_dir_for(self.files[i])):
+            # girar 90° es instantáneo: se gira la imagen ya hecha (sin volver a renderizar)
+            path = self.files[i]
+            self.link_lbl.config(text=f"Girando {name}…")
+
+            def turn():
+                from PIL import Image
+                Image.MAX_IMAGE_PIXELS = None
+                try:
+                    with Image.open(path) as im:
+                        im.load()
+                        out = im.transpose(Image.ROTATE_270)
+                    out.save(path, compress_level=1)
+                    msg = f"{name}: girado 90°"
+                except Exception as e:
+                    msg = f"{name}: no se pudo girar ({e})"
+                self.after(0, lambda: (self._thumbs.clear(), self.link_lbl.config(text=msg),
+                                       self._show_current()))
+            threading.Thread(target=turn, daemon=True).start()
+            return
         if self._linked_busy:
             messagebox.showinfo("Ajustar", "Espera a que termine el render en marcha.")
             return

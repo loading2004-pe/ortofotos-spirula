@@ -713,6 +713,43 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
         except Exception as e:
             on_item(name, "error", str(e))
 
+    # ambientes recortados por partes (CARA A, CARA B…, PLANTA, TECHO del mismo modelo)
+    import cubo
+    items = list(items)
+    names = {n for _p, n in items}
+    for n, e in list(man.items()):            # re-render de una parte: traer todo su ambiente
+        if e.get("ambiente") and n not in names and e.get("ply") and os.path.isfile(e["ply"]) and \
+                any(man.get(m, {}).get("ambiente") == e["ambiente"] for m in names):
+            items.append((e["ply"], n))
+            names.add(n)
+    amb, items = cubo.find_ambientes(items)
+    for key, parts in amb.items():
+        if cancel is not None and cancel.is_set():
+            break
+        for _p, n, _r in parts:
+            on_item(n, "renderizando", "ambiente por partes")
+        t = time.time()
+        try:
+            rots = {n: int(man.get(n, {}).get("rot", 0)) for _p, n, _r in parts}
+            for _p, n, _r in parts:
+                for old in (os.path.join(out_dir, n + ".png"), os.path.join(out_dir, "x_" + n + ".png")):
+                    if os.path.exists(old):
+                        os.remove(old)
+            infos = cubo.render_ambiente(parts, out_dir, long_side=int(cfg["render_lado_largo_px"]),
+                                         background=tuple(cfg.get("render_fondo_color", (0, 0, 0))),
+                                         margin=max(0.02, float(cfg["render_margen"])), rots=rots,
+                                         log=lambda *_: None)
+            with lock:
+                for p_, n, r in parts:
+                    man[n] = {"ply": p_, "flip": False, "rot": rots.get(n, 0), "ambiente": key, "rol": r}
+                write_manifest(out_dir, man)
+            for _p, n, r in parts:
+                sz = infos[n]["size"]
+                on_item(n, "listo", f"{sz[0]}x{sz[1]} px, ambiente «{key}» ({r}), {time.time() - t:.0f} s")
+        except Exception as e:
+            for _p, n, _r in parts:
+                on_item(n, "error", f"ambiente: {e}")
+
     with ThreadPoolExecutor(max_workers=max(1, int(cfg.get("paralelo_render", 2)))) as ex:
         list(ex.map(one, items))
 

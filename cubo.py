@@ -19,7 +19,7 @@ import os
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from render_ortho import OrthoCam, render, rotate_camera
+from render_ortho import OrthoCam, render, rotate_camera, straighten_angle
 
 CARAS = ("Norte", "Este", "Sur", "Oeste", "Techo", "Suelo")
 TIPOS = ("fachada", "interior", "exterior")
@@ -529,3 +529,194 @@ def render_cube_job(model, an, tipo, norte, out_png, name, caras=None, long_side
                titulo=f"{name} · {'interior' if tipo == 'interior' else 'exterior'}")
     sh.save(out_png, compress_level=3)
     return {"caras": sorted(imgs), "size": sh.size, "carpeta": d}
+
+
+# ---------------------------------------------------------------------------
+# Ambiente por partes: una habitación recortada en varios .ply (CARA A, CARA B, …, PLANTA,
+# TECHO) del MISMO modelo. Se usan los recortes como guía: el TECHO y la PLANTA dan la
+# vertical, cada pared se orienta hacia el centro del ambiente y se renderiza con su propio
+# recorte (limpio), todas a la misma escala.
+# ---------------------------------------------------------------------------
+import re as _re
+
+_ROLE_WORDS = {
+    "techo": ("techo", "cielo", "cielorraso", "cielo raso", "ceiling"),
+    "suelo": ("planta", "piso", "suelo", "floor"),
+}
+
+
+def part_role(name):
+    n = name.lower()
+    for role, words in _ROLE_WORDS.items():
+        if any(_re.search(r"\b" + w + r"\b", n) for w in words):
+            return role
+    return "pared"
+
+
+def group_key(name):
+    n = name.lower()
+    n = _re.sub(r"\b(cara|lado|pared|muro|elevaci[oó]n|vista)\s*[a-z0-9]{1,2}\b", " ", n)
+    for words in _ROLE_WORDS.values():
+        for w in words:
+            n = _re.sub(r"\b" + w + r"\b", " ", n)
+    n = _re.sub(r"\b(ambiente|interior|amb)\b", " ", n)
+    return " ".join(_re.sub(r"[_\-]+", " ", n).split())
+
+
+def find_ambientes(items):
+    """items [(ply, nombre)] -> ({clave: [(ply, nombre, rol)]}, resto). Un ambiente es un grupo
+    de 3 o más recortes con el mismo nombre base y al menos un TECHO o PLANTA."""
+    groups = {}
+    for ply, name in items:
+        groups.setdefault(group_key(name), []).append((ply, name, part_role(name)))
+    amb, rest = {}, []
+    for k, parts in groups.items():
+        roles = [r for _p, _n, r in parts]
+        if len(parts) >= 3 and ("techo" in roles or "suelo" in roles) and roles.count("pared") >= 1:
+            amb[k] = parts
+        else:
+            rest += [(p, n) for p, n, _r in parts]
+    return amb, rest
+
+
+def _opaque_pts(model, k=200_000, seed=0):
+    a = _sigmoid(model["opacity"])
+    idx = np.nonzero(a > 0.5)[0]
+    if len(idx) > k:
+        idx = np.random.default_rng(seed).choice(idx, k, replace=False)
+    return model["xyz"][idx]
+
+
+def _subset(model, mask):
+    n = len(model["xyz"])
+    return {k: (v[mask] if isinstance(v, np.ndarray) and len(v) == n else v) for k, v in model.items()}
+
+
+def render_ambiente(parts, out_dir, long_side=4000, background=(0, 0, 0), margin=0.04,
+                    log=print, progress=None, rots=None, read=None):
+    """parts [(ply, nombre, rol)] -> guarda <out_dir>/<nombre>.png de cada parte.
+    Devuelve {nombre: info}."""
+    import render_ortho as ro
+    read = read or ro.read_splat_ply
+    rots = rots or {}
+    models = {}
+    for i, (ply, name, role) in enumerate(parts):
+        if progress:
+            progress(i, len(parts) * 2, f"leyendo {name}")
+        models[name] = read(ply)
+    # modelo conjunto (muestra) para la orientación del ambiente
+    allp = {n: _opaque_pts(m) for n, m in models.items()}
+    keys = [k for k in next(iter(models.values())) if isinstance(next(iter(models.values()))[k], np.ndarray)]
+    merged = {}
+    for k in keys:
+        arrs = []
+        for m in models.values():
+            v = m[k]
+            if isinstance(v, np.ndarray) and len(v) == len(m["xyz"]):
+                step = max(1, len(v) // 250_000)
+                arrs.append(v[::step])
+        if len(arrs) == len(models):
+            merged[k] = np.concatenate(arrs)
+    merged["rest"] = None
+    merged["mip"] = False
+    roles = {n: r for _p, n, r in parts}
+    tops = [np.median(allp[n], 0) for n in allp if roles[n] == "techo"]
+    bots = [np.median(allp[n], 0) for n in allp if roles[n] == "suelo"]
+    up0 = None
+    if tops and bots:
+        up0 = _unit(np.mean(tops, 0) - np.mean(bots, 0))
+    an = analyze(merged, None, [up0] if up0 is not None else None)
+    up, d0, d1 = (np.array(an[k], float) for k in ("up", "d0", "d1"))
+    if up0 is not None and up @ up0 < 0:
+        up = -up
+    allpts = np.vstack(list(allp.values()))
+    ctr = np.median(allpts, 0)
+    size = float(np.percentile(np.linalg.norm(allpts - ctr, axis=1), 95)) * 2
+    dirs = [d0, d1, -d0, -d1]
+    walls = [n for n in allp if roles[n] == "pared"]
+    # referencia para la orientación de techo y planta: la primera pared (orden alfabético)
+    ref_wall = sorted(walls)[0] if walls else None
+    cams = {}
+    for name in allp:
+        P = allp[name]
+        c = np.median(P, 0) - ctr
+        if roles[name] == "techo":
+            D = up
+        elif roles[name] == "suelo":
+            D = -up
+        else:
+            h = c - (c @ up) * up
+            D = max(dirs, key=lambda d: float(h @ d))
+        cams[name] = D
+    ref_dir = cams[ref_wall] if ref_wall else d0
+    infos = {}
+    built = {}
+    rng = np.random.default_rng(0)
+    cos_lim = math.cos(math.radians(30))
+    cos_h = math.cos(math.radians(12))
+    for name, D in cams.items():
+        P = allp[name]
+        # plano de ESTA cara: RANSAC solo con normales parecidas a la dirección esperada
+        lo, hi = np.percentile(P, 1, axis=0), np.percentile(P, 99, axis=0)
+        Pp = P[np.all((P >= lo) & (P <= hi), axis=1)]
+        tau = 0.006 * float(np.linalg.norm(hi - lo))
+        best, bn, bp = -1, None, None
+        for _ in range(900):
+            i3 = rng.choice(len(Pp), 3, replace=False)
+            p1, p2, p3 = Pp[i3]
+            n = np.cross(p2 - p1, p3 - p1)
+            nn = np.linalg.norm(n)
+            if nn < 1e-12:
+                continue
+            n = n / nn
+            if abs(float(n @ D)) < (cos_lim if roles[name] == "pared" else cos_h):
+                continue
+            sc = int(np.count_nonzero(np.abs((Pp - p1) @ n) < tau))
+            if sc > best:
+                best, bn, bp = sc, n, p1
+        if bn is None:
+            bn, bp = D, np.median(P, 0)
+        inl = Pp[np.abs((Pp - bp) @ bn) < tau]
+        if len(inl) > 50:
+            c0 = inl.mean(0)
+            _, _, vt = np.linalg.svd(inl - c0, full_matrices=False)
+            bn, bp = (vt[2] if vt[2] @ bn > 0 else -vt[2]), c0
+        normal = _unit(bn if (ctr - bp) @ bn > 0 else -bn)      # hacia dentro del ambiente
+        ref = up if roles[name] == "pared" else (ref_dir if roles[name] == "suelo" else -ref_dir)
+        img_up = ref - (ref @ normal) * normal
+        if np.linalg.norm(img_up) < 1e-6:
+            img_up = d0 - (d0 @ normal) * normal
+        img_up = _unit(img_up)
+        right = _unit(np.cross(img_up, normal))
+        Q = (inl if len(inl) > 200 else P) - bp
+        u, v = Q @ right, Q @ img_up
+        u0, u1 = np.percentile(u, 0.3), np.percentile(u, 99.7)
+        v0, v1 = np.percentile(v, 0.3), np.percentile(v, 99.7)
+        mu, mv = (u1 - u0) * margin, (v1 - v0) * margin
+        cam = OrthoCam(bp, right, img_up, normal, (u0 - mu, u1 + mu), (v0 - mv, v1 + mv))
+        # enderezar la cara con sus propias líneas (puertas, ventanas, bordes)
+        try:
+            ext0 = max(u1 - u0, v1 - v0)
+            prev = render(models[name], cam, 1200, (0.04 * size) / max(ext0, 1e-9))
+            ang = straighten_angle(prev)
+            if abs(ang) > 0.05:
+                cam = rotate_camera(cam, ang)
+        except Exception:
+            pass
+        built[name] = (cam, 0.04 * size)
+    ext = {n: max(c.u_range[1] - c.u_range[0], c.v_range[1] - c.v_range[0]) for n, (c, _cl) in built.items()}
+    pix = max(ext.values()) / float(long_side)
+    os.makedirs(out_dir, exist_ok=True)
+    for i, (name, (cam, clip)) in enumerate(built.items()):
+        if progress:
+            progress(len(parts) + i, len(parts) * 2, name)
+        ls = max(64, int(round(ext[name] / pix)))
+        im = render(models[name], cam, ls, clip / max(ext[name], 1e-9), background=background)
+        k = int(rots.get(name, 0)) % 4
+        for _ in range(k):
+            im = im.transpose(Image.ROTATE_270)
+        out = os.path.join(out_dir, name + ".png")
+        im.save(out, compress_level=3)
+        infos[name] = {"size": im.size, "rol": roles[name], "salida": out}
+        log(f"  {name}: {roles[name]} → {im.size[0]}x{im.size[1]} px")
+    return infos

@@ -1,16 +1,16 @@
 {
- "version": "2026.11.23.3",
- "fecha": "2026-11-23 09:41",
- "notas": "6 caras: detecta exteriores capturados con dron (manzanas o edificios sin cámaras dentro) y calcula la vertical aunque el .ply no tenga cámaras. Rótulos más grandes en la lámina.",
+ "version": "2026.11.23.4",
+ "fecha": "2026-11-23 09:45",
+ "notas": "Visor 6 caras: alineación a mano tipo gizmo. Arrastra en la planta cada pared y el punto blanco para girar; elige la vertical (+X…-Z), inclina con los controles y sube o baja suelo y techo. Se guarda y se usa al renderizar.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "2496c6ea529b8029473318d93b50fab2bebd3ef7cde6aec68800dd0a857e8139",
-  "pipeline.py": "c44c38246c2cda28e7e0ede72dfe26b24c7a131cfa56bf07dcabe9befce55783",
+  "app.py": "d8b80ba525d0132e4bc9ab9f5f16911b27c2f89885d71187f96b1f6feb39eefa",
+  "pipeline.py": "17032886229644ec87039d4b05b7b9741bef6176a9363236efeddac66d7ac30c",
   "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "e2e0ebdcc75562060da2a95b509cc1479ce9a2d99e48636b3778a6c268c89ae0",
-  "cubo.py": "525558a3d861ae8c7aa90af6304113f9d144354012e0f8fdb2ec750f6e535725"
+  "app_version.py": "cd79ce2c189e5ef507167cf8804085d869b920a991557f5a26c0ad833794bb65",
+  "cubo.py": "b75cb20799827802953fdb77c06d151078e932e0bd74773c5ab8242ce5731c5c"
  }
 }

@@ -734,7 +734,9 @@ def render_auto(ply, out_png, name, cfg, wd=None, cams=None, ups=None, workspace
     tipo = conf.get("tipo", "auto")
     bg = tuple(cfg.get("render_fondo_color", (0, 0, 0)))
     an = None
-    if tipo == "auto" and cfg.get("render_detectar_cubo", True):
+    if conf.get("manual") and tipo in ("interior", "exterior"):
+        an = dict(conf["manual"])          # alineación hecha a mano en el visor
+    elif tipo == "auto" and cfg.get("render_detectar_cubo", True):
         an = cubo.analyze(model, cams, ups)
         tipo = an["tipo_auto"]
     elif tipo in ("interior", "exterior"):

@@ -5,6 +5,8 @@ Escanear, luego Procesar. Al terminar, pestaña Revisar: B = bien, M = mal (x_).
 """
 from __future__ import annotations
 
+import math
+import numpy as np
 import os
 import queue
 import subprocess
@@ -1550,6 +1552,11 @@ class CubeViewer(tk.Toplevel):
         self.caras = {k: tk.BooleanVar(value=(k in sel) if sel else True) for k in cubo.CARAS}
         self.model = self.an = self.cams = self.ups = None
         self._imgs = []
+        self._saved_manual = conf.get("manual")
+        self.cur = None             # análisis en uso (automático o alineado a mano)
+        self._pc = None             # cámara de la planta dibujada
+        self._drag = None
+        self._after_prev = None
         left = ttk.Frame(self, padding=8)
         left.pack(side="left", fill="y")
         ttk.Label(left, text="Planta (corte a media altura)", font=("Segoe UI", 10, "bold")).pack(anchor="w")
@@ -1557,6 +1564,46 @@ class CubeViewer(tk.Toplevel):
         self.plan.pack(pady=4)
         self.info = ttk.Label(left, text="Cargando modelo…", wraplength=520, justify="left")
         self.info.pack(anchor="w")
+        mp = ttk.LabelFrame(left, text="  Alinear a mano (si no lo detecta bien)  ", padding=6)
+        mp.pack(fill="x", pady=(8, 0))
+        self.manual_on = tk.BooleanVar(value=bool(self._saved_manual))
+        ttk.Checkbutton(mp, text="Usar mi alineación (arrastra en la planta los bordes de colores para "
+                                 "mover cada pared y el punto blanco para girar)",
+                        variable=self.manual_on, command=self._toggle_manual).pack(anchor="w")
+        g = ttk.Frame(mp)
+        g.pack(fill="x", pady=(4, 0))
+        ttk.Label(g, text="Vertical (arriba):").grid(row=0, column=0, sticky="w")
+        self.up_choice = tk.StringVar(value="Automática")
+        cb = ttk.Combobox(g, textvariable=self.up_choice, state="readonly", width=11,
+                          values=["Automática", "+X", "-X", "+Y", "-Y", "+Z", "-Z"])
+        cb.grid(row=0, column=1, sticky="w", padx=4)
+        cb.bind("<<ComboboxSelected>>", lambda e: self._set_up())
+        ttk.Button(g, text="Ajustar paredes solo", command=self._refit).grid(row=0, column=2, padx=4)
+        self._sl = {}
+        for i, (key, lab, lo, hi) in enumerate((("yaw", "Giro", -45, 45),
+                                                ("ta", "Inclinación A", -20, 20),
+                                                ("tb", "Inclinación B", -20, 20))):
+            ttk.Label(g, text=lab + ":").grid(row=i + 1, column=0, sticky="w")
+            v = tk.DoubleVar(value=0.0)
+            sc = ttk.Scale(g, from_=lo, to=hi, variable=v, length=260,
+                           command=lambda _x, k=key: self._slider(k))
+            sc.grid(row=i + 1, column=1, columnspan=2, sticky="we", padx=4)
+            val = ttk.Label(g, text="0.0°", width=6)
+            val.grid(row=i + 1, column=3)
+            self._sl[key] = [v, 0.0, val]
+        hrow = ttk.Frame(mp)
+        hrow.pack(fill="x", pady=(4, 0))
+        for lab, idx in (("Suelo", 0), ("Techo", 1)):
+            ttk.Label(hrow, text=f"{lab}:").pack(side="left")
+            ttk.Button(hrow, text="▼", width=2, command=lambda i=idx: self._height(i, -1)).pack(side="left")
+            ttk.Button(hrow, text="▲", width=2, command=lambda i=idx: self._height(i, +1)).pack(side="left")
+            ttk.Label(hrow, text="   ").pack(side="left")
+        ttk.Button(hrow, text="↺ Volver a lo automático", command=self._reset_manual).pack(side="right")
+        self.man_lbl = ttk.Label(mp, text="", foreground="#555", wraplength=500)
+        self.man_lbl.pack(anchor="w")
+        self.plan.bind("<ButtonPress-1>", self._press)
+        self.plan.bind("<B1-Motion>", self._motion)
+        self.plan.bind("<ButtonRelease-1>", self._release)
         right = ttk.Frame(self, padding=8)
         right.pack(side="left", fill="both", expand=True)
         box = ttk.LabelFrame(right, text="  ¿Cómo se renderiza?  ", padding=8)
@@ -1703,7 +1750,13 @@ class CubeViewer(tk.Toplevel):
 
     def _eff_tipo(self):
         t = self.tipo.get()
+        if self.manual_on.get() and t in ("auto", "fachada"):
+            return "exterior" if self.an is None or self.an["tipo_auto"] != "interior" else "interior"
         return self.an["tipo_auto"] if t == "auto" else t
+
+    def _use(self):
+        """Análisis con el que se dibuja y renderiza."""
+        return self.cur if (self.manual_on.get() and self.cur) else self.an
 
     def _load(self):
         import render_ortho as ro
@@ -1728,6 +1781,11 @@ class CubeViewer(tk.Toplevel):
                               "Cada pared está marcada con su nombre; con «Girar Norte» cambias cuál "
                               "es el Norte. Los puntos blancos son las posiciones de la cámara.")
         self.btn_go.state(["!disabled"])
+        if self._saved_manual and self.manual_on.get():
+            self.cur = dict(self._saved_manual)
+        else:
+            self.cur = dict(self.an)
+        self._ref_d0 = np.array(self.cur["d0"], float)
         self._preview()
 
     def _rot_north(self):
@@ -1740,24 +1798,50 @@ class CubeViewer(tk.Toplevel):
         self.status.config(text="Generando vista previa…")
         tipo, norte = self._eff_tipo(), self.norte
         caras = [k for k, v in self.caras.items() if v.get()]
+        an = dict(self._use())
+        keep_plan = getattr(self, "_plan_key", None) == self._plan_signature(an)
 
         def work():
             import render_ortho as ro
             import cubo
-            pc = cubo.plan_cam(self.an, norte)
-            if getattr(self, "_plan_model", None) is None:
-                self._plan_model = cubo.plan_model(self.model, self.an)
-            plan = ro.render(self._plan_model, pc, 520, 0.0, background=(34, 34, 34))
+            if keep_plan and self._plan_img is not None:
+                plan, pc = self._plan_img, self._pc
+            else:
+                pc = self._plan_frame(an)
+                pm = cubo.plan_model(self.model, an, grow=0.6)
+                plan = ro.render(pm, pc, 520, 0.0, background=(34, 34, 34))
             faces = {}
             if tipo in ("interior", "exterior"):
-                faces = cubo.render_faces(self.model, self.an, tipo, norte, caras, long_side=self.TH,
+                faces = cubo.render_faces(self.model, an, tipo, norte, caras, long_side=self.TH,
                                           background=(34, 34, 34), log=lambda *_: None)
-            self.after(0, lambda: self._show(plan, pc, faces, tipo))
+            self.after(0, lambda: self._show(plan, pc, faces, tipo, an))
         threading.Thread(target=work, daemon=True).start()
 
-    def _show(self, plan, pc, faces, tipo):
+    # ---- planta fija (no gira con el giro manual: así se ve rotar la caja)
+    def _plan_signature(self, an):
+        return (tuple(np.round(an["up"], 3)), self.norte, self.manual_on.get())
+
+    def _plan_frame(self, an):
+        import cubo
+        if self.manual_on.get():
+            ref = dict(an)
+            up = np.array(an["up"], float)
+            d = self._ref_d0 - (self._ref_d0 @ up) * up
+            if np.linalg.norm(d) < 1e-6:
+                d = np.array(an["d0"], float)
+            d = d / np.linalg.norm(d)
+            ref["d0"], ref["d1"] = d.tolist(), np.cross(up, d).tolist()
+            pc = cubo.plan_cam(ref, self.norte, extra=0.6)
+        else:
+            pc = cubo.plan_cam(an, self.norte)
+        return pc
+
+    def _show(self, plan, pc, faces, tipo, an=None):
         from PIL import ImageTk
         import cubo
+        an = an or self._use()
+        self._plan_img, self._pc = plan, pc
+        self._plan_key = self._plan_signature(an)
         self._imgs = []
         cv = self.plan
         cv.delete("all")
@@ -1769,16 +1853,7 @@ class CubeViewer(tk.Toplevel):
             for x, y in cubo.project(pc, self.cams, W, H):
                 cv.create_oval(x - 2, y - 2, x + 2, y + 2, fill="white", outline="")
         cube = tipo in ("interior", "exterior")
-        colors = {"Norte": "#ff5252", "Este": "#ffd740", "Sur": "#69f0ae", "Oeste": "#40c4ff"}
-        for nm, (a, b) in cubo.wall_segments(self.an, self.norte).items():
-            (x0, y0), (x1, y1) = cubo.project(pc, [a, b], W, H)
-            cv.create_line(x0, y0, x1, y1, fill=colors[nm], width=3 if cube else 1,
-                           dash=() if cube else (4, 4))
-            mx, my = (x0 + x1) / 2, (y0 + y1) / 2
-            cx, cy = W / 2, H / 2
-            lx, ly = mx + (mx - cx) * 0.12, my + (my - cy) * 0.12
-            cv.create_text(lx, ly, text=nm, fill=colors[nm], font=("Segoe UI", 11, "bold"))
-        cv.create_text(W - 20, 18, text="N ↑", fill="#ff5252", font=("Segoe UI", 12, "bold"))
+        self._draw_overlay(an, cube)
         for w in self.grid_f.winfo_children():
             w.destroy()
         self.grid_title.config(text="Vista previa (rápida, baja resolución):" if cube else "")
@@ -1795,7 +1870,7 @@ class CubeViewer(tk.Toplevel):
                 lab = k
                 if tipo == "exterior":
                     lab = "Cubierta" if k == "Techo" else "Elevación " + k
-                elif k in colors:
+                elif k in self.COLORS:
                     lab = "Pared " + k
                 ttk.Label(cell, text=lab, font=("Segoe UI", 10, "bold")).pack(anchor="w")
                 im = faces.get(k)
@@ -1809,9 +1884,224 @@ class CubeViewer(tk.Toplevel):
                 tk.Label(cell, image=t, bg="#222").pack()
         self.status.config(text="")
 
+    COLORS = {"Norte": "#ff5252", "Este": "#ffd740", "Sur": "#69f0ae", "Oeste": "#40c4ff"}
+
+    def _draw_overlay(self, an=None, cube=True):
+        import cubo
+        an = an or self._use()
+        cv, pc = self.plan, self._pc
+        if pc is None:
+            return
+        cv.delete("ov")
+        W = H = 520
+        self._segs = {}
+        for nm, (a, b) in cubo.wall_segments(an, self.norte).items():
+            (x0, y0), (x1, y1) = cubo.project(pc, [a, b], W, H)
+            self._segs[nm] = (x0, y0, x1, y1)
+            cv.create_line(x0, y0, x1, y1, fill=self.COLORS[nm], width=4 if cube else 1,
+                           dash=() if cube else (4, 4), tags="ov")
+            mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+            ctr = cubo.project(pc, [self._center(an)], W, H)[0]
+            lx, ly = mx + (mx - ctr[0]) * 0.12, my + (my - ctr[1]) * 0.12
+            cv.create_text(lx, ly, text=nm, fill=self.COLORS[nm], font=("Segoe UI", 11, "bold"), tags="ov")
+        if self.manual_on.get():
+            c = cubo.project(pc, [self._center(an)], W, H)[0]
+            n = cubo.project(pc, [self._center(an) + cubo.cardinal(an, self.norte)["Norte"] *
+                                  0.35 * self._span(an)], W, H)[0]
+            cv.create_line(c[0], c[1], n[0], n[1], fill="white", width=2, tags="ov")
+            cv.create_oval(n[0] - 7, n[1] - 7, n[0] + 7, n[1] + 7, fill="white", outline="#222", tags="ov")
+            self._handle = (n[0], n[1], c[0], c[1])
+            (a0, b0), (a1, b1), (au, bu) = an["caja"]
+            self.man_lbl.config(text=f"Caja: {b0 - a0:.2f} × {b1 - a1:.2f} × alto {bu - au:.2f} "
+                                     "(unidades del modelo)")
+        cv.create_text(W - 20, 18, text="N ↑" if not self.manual_on.get() else "", fill="#ff5252",
+                       font=("Segoe UI", 12, "bold"), tags="ov")
+
+    @staticmethod
+    def _center(an):
+        up, d0, d1 = (np.array(an[k], float) for k in ("up", "d0", "d1"))
+        (a0, b0), (a1, b1), (au, bu) = an["caja"]
+        return 0.5 * (a0 + b0) * d0 + 0.5 * (a1 + b1) * d1 + 0.5 * (au + bu) * up
+
+    @staticmethod
+    def _span(an):
+        return max(b - a for a, b in an["caja"][:2])
+
+    # ---- alineación manual
+    def _toggle_manual(self):
+        if self.an is None:
+            return
+        if self.manual_on.get():
+            if self.cur is None:
+                self.cur = dict(self.an)
+            if self.tipo.get() in ("auto", "fachada"):
+                self.tipo.set("interior" if self.an["tipo_auto"] == "interior" else "exterior")
+        self._plan_key = None
+        self._preview()
+
+    def _schedule(self, plan=False):
+        if plan:
+            self._plan_key = None
+        self._draw_overlay()
+        if self._after_prev:
+            self.after_cancel(self._after_prev)
+        self._after_prev = self.after(700, self._preview)
+
+    def _ensure_manual(self):
+        if not self.manual_on.get():
+            self.manual_on.set(True)
+            self._toggle_manual()
+        if self.cur is None:
+            self.cur = dict(self.an)
+
+    def _slider(self, key):
+        import cubo
+        if self.an is None:
+            return
+        self._ensure_manual()
+        v, last, lab = self._sl[key]
+        val = round(float(v.get()) * 2) / 2
+        d = val - last
+        if not d:
+            return
+        self._sl[key][1] = val
+        lab.config(text=f"{val:+.1f}°")
+        self.cur = cubo.rotate_frame(self.cur, yaw_deg=d if key == "yaw" else 0,
+                                     tilt_a=d if key == "ta" else 0, tilt_b=d if key == "tb" else 0)
+        self._schedule(plan=key != "yaw")
+
+    def _set_up(self):
+        import cubo
+        if self.model is None:
+            return
+        ch = self.up_choice.get()
+        self._ensure_manual()
+        axes = {"+X": [1, 0, 0], "-X": [-1, 0, 0], "+Y": [0, 1, 0], "-Y": [0, -1, 0],
+                "+Z": [0, 0, 1], "-Z": [0, 0, -1]}
+        self.status.config(text="Recalculando con la nueva vertical…")
+        up = axes.get(ch)
+
+        def work():
+            an = cubo.analyze(self.model, self.cams, self.ups, up=up)
+            self.after(0, lambda: self._apply_refit(an))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _refit(self):
+        """Recalcula la posición de las paredes manteniendo la orientación elegida."""
+        import cubo
+        if self.model is None:
+            return
+        self._ensure_manual()
+        up, d0 = list(self.cur["up"]), list(self.cur["d0"])
+        self.status.config(text="Ajustando paredes…")
+
+        def work():
+            an = cubo.analyze(self.model, self.cams, self.ups, up=up, d0=d0)
+            self.after(0, lambda: self._apply_refit(an))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _apply_refit(self, an):
+        self.cur = an
+        self._ref_d0 = np.array(an["d0"], float)
+        for k in self._sl:
+            self._sl[k][0].set(0.0)
+            self._sl[k][1] = 0.0
+            self._sl[k][2].config(text="0.0°")
+        self._schedule(plan=True)
+
+    def _reset_manual(self):
+        self.manual_on.set(False)
+        self.cur = dict(self.an) if self.an else None
+        self.up_choice.set("Automática")
+        for k in self._sl:
+            self._sl[k][0].set(0.0)
+            self._sl[k][1] = 0.0
+            self._sl[k][2].config(text="0.0°")
+        self._plan_key = None
+        self._preview()
+
+    def _height(self, idx, sign):
+        if self.an is None:
+            return
+        self._ensure_manual()
+        box = [list(x) for x in self.cur["caja"]]
+        step = 0.02 * (box[2][1] - box[2][0] or 1.0)
+        box[2][idx] += sign * step
+        if box[2][1] - box[2][0] > step:
+            self.cur = dict(self.cur, caja=box)
+            self._schedule()
+
+    def _world(self, x, y):
+        pc = self._pc
+        u = pc.u_range[0] + x / 520.0 * (pc.u_range[1] - pc.u_range[0])
+        v = pc.v_range[1] - y / 520.0 * (pc.v_range[1] - pc.v_range[0])
+        return pc.origin + u * pc.right + v * pc.up
+
+    def _press(self, e):
+        if self._pc is None or self.an is None:
+            return
+        h = getattr(self, "_handle", None)
+        if self.manual_on.get() and h and (e.x - h[0]) ** 2 + (e.y - h[1]) ** 2 < 144:
+            self._drag = ("rot", math.atan2(e.y - h[3], e.x - h[2]))
+            return
+        best, bd = None, 12.0
+        for nm, (x0, y0, x1, y1) in getattr(self, "_segs", {}).items():
+            dx, dy = x1 - x0, y1 - y0
+            t = max(0.0, min(1.0, ((e.x - x0) * dx + (e.y - y0) * dy) / max(dx * dx + dy * dy, 1e-9)))
+            d = math.hypot(e.x - (x0 + t * dx), e.y - (y0 + t * dy))
+            if d < bd:
+                best, bd = nm, d
+        if best:
+            self._ensure_manual()
+            self._drag = ("wall", best)
+
+    def _motion(self, e):
+        import cubo
+        if not self._drag or self.cur is None:
+            return
+        if self._drag[0] == "rot":
+            h = self._handle
+            ang = math.atan2(e.y - h[3], e.x - h[2])
+            d = math.degrees(ang - self._drag[1])
+            self._drag = ("rot", ang)
+            # en pantalla el eje y va hacia abajo: girar en sentido horario es negativo
+            self.cur = cubo.rotate_frame(self.cur, yaw_deg=-d)
+            v = self._sl["yaw"]
+            v[1] = max(-45.0, min(45.0, v[1] - d))
+            v[0].set(v[1])
+            v[2].config(text=f"{v[1]:+.1f}°")
+            self._draw_overlay()
+            return
+        nm = self._drag[1]
+        D = cubo.cardinal(self.cur, self.norte)[nm]
+        p = self._world(e.x, e.y)
+        box = [list(x) for x in self.cur["caja"]]
+        for k in (0, 1):
+            ax = np.array(self.cur["d%d" % k], float)
+            dot = float(D @ ax)
+            if abs(dot) > 0.9:
+                s = float(p @ ax)
+                lo, hi = box[k]
+                mind = 0.05 * self._span(self.cur)
+                if dot > 0:
+                    box[k][1] = max(s, lo + mind)
+                else:
+                    box[k][0] = min(s, hi - mind)
+        self.cur = dict(self.cur, caja=box)
+        self._draw_overlay()
+
+    def _release(self, _e):
+        if self._drag:
+            self._drag = None
+            self._schedule()
+
     def _conf(self):
         caras = [k for k, v in self.caras.items() if v.get()]
         c = {"tipo": self.tipo.get(), "norte": self.norte}
+        if self.manual_on.get() and self.cur:
+            c["manual"] = {k: self.cur[k] for k in ("up", "d0", "d1", "caja")}
+            if c["tipo"] in ("auto", "fachada"):
+                c["tipo"] = self._eff_tipo()
         if len(caras) < 6:
             c["caras"] = caras
         return c

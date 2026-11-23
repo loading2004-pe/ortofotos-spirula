@@ -82,8 +82,11 @@ def _up_without_cams(model, P):
     return up
 
 
-def analyze(model, cams=None, ups=None, max_pts=400_000, seed=0):
-    """Analiza la geometría. Devuelve un dict serializable (listas) con la detección."""
+def analyze(model, cams=None, ups=None, max_pts=400_000, seed=0, up=None, d0=None):
+    """Analiza la geometría. Devuelve un dict serializable (listas) con la detección.
+    up / d0 fijan a mano la vertical y la dirección de una pared (alineación manual)."""
+    fixed_up = None if up is None else _unit(up)
+    fixed_d0 = None if d0 is None else np.asarray(d0, float)
     rng = np.random.default_rng(seed)
     xyz = model["xyz"]
     alpha = _sigmoid(model["opacity"])
@@ -104,13 +107,15 @@ def analyze(model, cams=None, ups=None, max_pts=400_000, seed=0):
     W = np.minimum(W, np.percentile(W, 99)) if len(W) else W
 
     # vertical
-    if ups is not None and len(ups):
+    if fixed_up is not None:
+        up = fixed_up
+    elif ups is not None and len(ups):
         up = _unit(np.mean(np.asarray(ups, float), 0))
     else:
         up = _up_without_cams(model, P)
     c = N @ up
     hz = flat & (np.abs(c) > 0.94)
-    if W[hz].sum() > 0.03 * W[flat].sum():
+    if fixed_up is None and W[hz].sum() > 0.03 * W[flat].sum():
         v = (np.sign(c[hz])[:, None] * N[hz] * W[hz, None]).sum(0)
         if np.linalg.norm(v) > 0 and v @ up > 0:
             up = _unit(v)
@@ -131,6 +136,10 @@ def analyze(model, cams=None, ups=None, max_pts=400_000, seed=0):
     manhattan = float(abs(z) / max(wv.sum(), 1e-12))
     vfrac = float(wv.sum() / max(W[flat].sum(), 1e-12))     # peso de superficies verticales
     d0 = _unit(math.cos(theta) * e1 + math.sin(theta) * e2)
+    if fixed_d0 is not None:
+        v = fixed_d0 - (fixed_d0 @ up) * up
+        if np.linalg.norm(v) > 1e-6:
+            d0 = _unit(v)
     d1 = _unit(np.cross(up, d0))
     axes = [d0, d1, up]
 
@@ -272,6 +281,29 @@ def face_cams(an, tipo, norte=0, margin=0.03):
         cam = OrthoCam(origin, right, img_up, normal, (-hu * (1 + 2 * margin), hu * (1 + 2 * margin)),
                        (-hv * (1 + 2 * margin), hv * (1 + 2 * margin)))
         out[name] = (cam, (0.02 if inner else 0.04) * H)
+    return out
+
+
+def rotate_frame(an, yaw_deg=0.0, tilt_a=0.0, tilt_b=0.0):
+    """Copia de 'an' con los ejes girados: yaw alrededor de la vertical, inclinaciones
+    alrededor de d0 y d1 (grados). La caja conserva sus medidas alrededor del centro."""
+    up, d0, d1 = (np.array(an[k], float) for k in ("up", "d0", "d1"))
+    (a0, b0), (a1, b1), (au, bu) = an["caja"]
+    ctr = 0.5 * (a0 + b0) * d0 + 0.5 * (a1 + b1) * d1 + 0.5 * (au + bu) * up
+
+    def rot(v, axis, deg):
+        t = math.radians(deg)
+        axis = _unit(axis)
+        return v * math.cos(t) + np.cross(axis, v) * math.sin(t) + axis * (axis @ v) * (1 - math.cos(t))
+    for axis, deg in ((d0, tilt_a), (d1, tilt_b), (up, yaw_deg)):
+        if deg:
+            ax0 = axis.copy()
+            up, d0, d1 = rot(up, ax0, deg), rot(d0, ax0, deg), rot(d1, ax0, deg)
+    out = dict(an)
+    out.update(up=_unit(up).tolist(), d0=_unit(d0).tolist(), d1=_unit(d1).tolist())
+    half = [0.5 * (b0 - a0), 0.5 * (b1 - a1), 0.5 * (bu - au)]
+    c = [float(ctr @ d0), float(ctr @ d1), float(ctr @ up)]
+    out["caja"] = [[c[i] - half[i], c[i] + half[i]] for i in range(3)]
     return out
 
 

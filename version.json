@@ -1,16 +1,16 @@
 {
- "version": "2026.11.23.12",
- "fecha": "2026-11-23 14:43",
- "notas": "2. Revisar abre la última carpeta revisada (o la de .ply limpios) si no hay resultados de 1. Procesar.",
+ "version": "2026.11.23.13",
+ "fecha": "2026-11-23 15:28",
+ "notas": "Un .ply vacío o dañado ya no detiene todo el ambiente: se renderiza el resto y se avisa cuál falló.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "14674a3993047114447d49f0e611a785fbeb329c974289f833c2ea2a60f44eb3",
-  "pipeline.py": "70d286a07f2cddb7299af76d43f4a6bcfc6ac1ba6cba5df9e8989395c00931d3",
+  "app.py": "c6261231ca60eab4f0847488c087f0d87eaba5942931ec4a03b9cf92bc8e7256",
+  "pipeline.py": "d0acc0855d3b76f22d3351f87e176e663bc617ae58ba61604bba32f61b2eb310",
   "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "4740598875f7e2a89f4e3a94a6dcbd00ed97d8e11caa31c401cb321d59532d68",
-  "cubo.py": "bd8b246821ae486f1d2a4a5d0f0057484fec70e950d8582bef9d58162e77bd8a"
+  "app_version.py": "fe4d66312851e744967c28551d0023ac6de1a8fdc6c5e13d1d3f9648b5a86a55",
+  "cubo.py": "c825fff64ff8940d28d941e6d78ecc0fc938982a3dd9a1f0556a4826c3e190f3"
  }
 }

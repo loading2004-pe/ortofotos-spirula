@@ -505,9 +505,15 @@ class App(tk.Tk):
                     self._linked_busy = False
                     self.review_dir = data
                     self.load_review()
-                    self.link_lbl.config(text=f"Listo: {self._link_done} ortofoto(s) en {data}")
+                    errs = getattr(self, "_link_errors", [])
+                    self._link_errors = []
+                    ok = self._link_done - len(errs)
+                    self.link_lbl.config(text=f"Listo: {ok} ortofoto(s) en {data}"
+                                              + (f" · {len(errs)} con error" if errs else ""))
                     self.bell()
-                    self.bell()
+                    if errs:
+                        messagebox.showwarning("Renderizar", "Estos no se pudieron renderizar:\n\n"
+                                               + "\n".join(errs[:12]))
         except queue.Empty:
             pass
         self.after(150, self._poll)
@@ -837,6 +843,8 @@ class App(tk.Tk):
     def _on_link_item(self, name, st, det):
         if st in ("listo", "error"):
             self._link_done += 1
+        if st == "error":
+            self._link_errors = getattr(self, "_link_errors", []) + [f"{name}: {det}"]
         self.link_lbl.config(text=f"Renderizando {self._link_done}/{self._link_total} · {name}: {st} {det}"
                              if self._link_done < self._link_total
                              else f"Listo: {self._link_total} ortofoto(s) · última: {name} {det}")

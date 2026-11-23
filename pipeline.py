@@ -618,7 +618,13 @@ def list_plys(folder, recursive=True):
         dirs[:] = [x for x in dirs if not x.startswith(".") and x.lower() != "ortofotos_limpias"]
         for f in sorted(files):
             if f.lower().endswith(".ply"):
-                found.append(os.path.join(d, f))
+                fp = os.path.join(d, f)
+                try:
+                    if os.path.getsize(fp) < 1024:     # archivo vacío o dañado (p. ej. copia fallida)
+                        continue
+                except OSError:
+                    continue
+                found.append(fp)
         if not recursive:
             break
     out, seen = [], {}
@@ -742,13 +748,18 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
                                          log=lambda *_: None, ajustes=ajs)
             with lock:
                 for p_, n, r in parts:
+                    if n not in infos:
+                        continue
                     man[n] = {"ply": p_, "flip": False, "rot": rots.get(n, 0), "ambiente": key, "rol": r}
                     if ajs.get(n):
                         man[n]["ajuste"] = ajs[n]
                 write_manifest(out_dir, man)
             for _p, n, r in parts:
-                sz = infos[n]["size"]
-                on_item(n, "listo", f"{sz[0]}x{sz[1]} px, ambiente «{key}» ({r}), {time.time() - t:.0f} s")
+                if n in infos:
+                    sz = infos[n]["size"]
+                    on_item(n, "listo", f"{sz[0]}x{sz[1]} px, ambiente «{key}» ({r}), {time.time() - t:.0f} s")
+                else:
+                    on_item(n, "error", "el .ply está vacío o dañado (vuelve a exportarlo)")
         except Exception as e:
             for _p, n, _r in parts:
                 on_item(n, "error", f"ambiente: {e}")

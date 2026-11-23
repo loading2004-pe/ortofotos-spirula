@@ -597,10 +597,18 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None):
     import render_ortho as ro
     read = read or ro.read_splat_ply
     models = {}
+    bad = {}
     for i, (ply, name, role) in enumerate(parts):
         if progress:
             progress(i, len(parts) * 2, f"leyendo {name}")
-        models[name] = read(ply)
+        try:
+            models[name] = read(ply)
+        except Exception as e:     # una parte dañada no detiene el resto del ambiente
+            bad[name] = str(e) or e.__class__.__name__
+    parts = [p for p in parts if p[1] in models]
+    if len(parts) < 2:
+        raise ValueError("no hay suficientes partes legibles en el ambiente" +
+                         (f" ({', '.join(bad)} dañado)" if bad else ""))
     # modelo conjunto (muestra) para la orientación del ambiente
     allp = {n: _opaque_pts(m) for n, m in models.items()}
     keys = [k for k in next(iter(models.values())) if isinstance(next(iter(models.values()))[k], np.ndarray)]
@@ -700,7 +708,7 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None):
         except Exception:
             pass
         built[name] = (cam, 0.04 * size)
-    return {"models": models, "cams": built, "roles": roles}
+    return {"models": models, "cams": built, "roles": roles, "malos": bad}
 
 
 def ui_to_adj(ui, cam):

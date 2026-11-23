@@ -592,13 +592,10 @@ def _subset(model, mask):
     return {k: (v[mask] if isinstance(v, np.ndarray) and len(v) == n else v) for k, v in model.items()}
 
 
-def render_ambiente(parts, out_dir, long_side=4000, background=(0, 0, 0), margin=0.04,
-                    log=print, progress=None, rots=None, read=None):
-    """parts [(ply, nombre, rol)] -> guarda <out_dir>/<nombre>.png de cada parte.
-    Devuelve {nombre: info}."""
+def ambiente_cams(parts, margin=0.04, progress=None, read=None):
+    """Prepara un ambiente por partes: {'models', 'cams': {nombre: (OrthoCam, recorte)}, 'roles'}."""
     import render_ortho as ro
     read = read or ro.read_splat_ply
-    rots = rots or {}
     models = {}
     for i, (ply, name, role) in enumerate(parts):
         if progress:
@@ -649,7 +646,6 @@ def render_ambiente(parts, out_dir, long_side=4000, background=(0, 0, 0), margin
             D = max(dirs, key=lambda d: float(h @ d))
         cams[name] = D
     ref_dir = cams[ref_wall] if ref_wall else d0
-    infos = {}
     built = {}
     rng = np.random.default_rng(0)
     cos_lim = math.cos(math.radians(30))
@@ -697,17 +693,43 @@ def render_ambiente(parts, out_dir, long_side=4000, background=(0, 0, 0), margin
         # enderezar la cara con sus propias líneas (puertas, ventanas, bordes)
         try:
             ext0 = max(u1 - u0, v1 - v0)
-            prev = render(models[name], cam, 1200, (0.04 * size) / max(ext0, 1e-9))
+            prev = render(preview_model(models[name], 300_000), cam, 1000, (0.04 * size) / max(ext0, 1e-9))
             ang = straighten_angle(prev)
             if abs(ang) > 0.05:
                 cam = rotate_camera(cam, ang)
         except Exception:
             pass
         built[name] = (cam, 0.04 * size)
+    return {"models": models, "cams": built, "roles": roles}
+
+
+def ui_to_adj(ui, cam):
+    """Ajuste de la interfaz (grados y %) -> ajuste en unidades del modelo para adjust_cam."""
+    if not ui:
+        return None
+    ext = max(cam.u_range[1] - cam.u_range[0], cam.v_range[1] - cam.v_range[0])
+    d = dict(ui)
+    d["mover"] = float(d.get("mover", 0)) / 100.0 * ext
+    d["ampliar"] = float(d.get("ampliar", 0)) / 100.0
+    return d
+
+
+def render_ambiente(parts, out_dir, long_side=4000, background=(0, 0, 0), margin=0.04,
+                    log=print, progress=None, rots=None, read=None, ajustes=None, setup=None, only=None):
+    """parts [(ply, nombre, rol)] -> guarda <out_dir>/<nombre>.png de cada parte.
+    ajustes = {nombre: ajuste de la interfaz}; only = nombres a guardar. Devuelve {nombre: info}."""
+    rots = rots or {}
+    ajustes = ajustes or {}
+    st = setup or ambiente_cams(parts, margin, progress, read)
+    models, roles = st["models"], st["roles"]
+    built = {n: (adjust_cam(c, ui_to_adj(ajustes.get(n), c)), cl) for n, (c, cl) in st["cams"].items()}
+    infos = {}
     ext = {n: max(c.u_range[1] - c.u_range[0], c.v_range[1] - c.v_range[0]) for n, (c, _cl) in built.items()}
     pix = max(ext.values()) / float(long_side)
     os.makedirs(out_dir, exist_ok=True)
     for i, (name, (cam, clip)) in enumerate(built.items()):
+        if only and name not in only:
+            continue
         if progress:
             progress(len(parts) + i, len(parts) * 2, name)
         ls = max(64, int(round(ext[name] / pix)))

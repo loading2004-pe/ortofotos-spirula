@@ -896,6 +896,13 @@ class App(tk.Tk):
         if not ply or not os.path.isfile(ply):
             messagebox.showinfo("Visor 6 caras", "No encuentro el .ply de esta imagen.")
             return
+        if entry.get("ambiente"):     # recorte de un ambiente por partes: se ajusta el ambiente entero
+            man = pl.read_manifest(d)
+            parts = [(e["ply"], n, e.get("rol", "pared")) for n, e in sorted(man.items())
+                     if e.get("ambiente") == entry["ambiente"] and e.get("ply") and os.path.isfile(e["ply"])]
+            if len(parts) >= 2:
+                AmbienteViewer(self, entry["ambiente"], parts, d)
+                return
         root = self.root_var.get()
         wd = pl.work_dir(self.cfg, root, name) if root else None
         CubeViewer(self, name, ply, wd if (wd and os.path.isdir(wd)) else None, d, entry)
@@ -2249,6 +2256,276 @@ class CubeViewer(tk.Toplevel):
         self.app.q.put(("log", f"{self.name}: {msg}"))
         self.app._thumbs.clear()
         self.app.load_review()
+
+
+class AmbienteViewer(tk.Toplevel):
+    """Ajustar un ambiente recortado por partes (CARA…, LADO…, PLANTA, TECHO): cada parte es una
+    cara; se ve en grande y en vivo, y se corrige sola sin tocar las demás."""
+    SLIDERS = CubeViewer.SLIDERS
+
+    def __init__(self, app, key, parts, results_dir):
+        super().__init__(app)
+        self.app, self.key, self.parts, self.results = app, key, parts, results_dir
+        self.title(f"Ambiente por partes — {key}")
+        try:
+            self.state("zoomed")
+        except tk.TclError:
+            self.geometry(f"{self.winfo_screenwidth()}x{self.winfo_screenheight() - 60}+0+0")
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        self.FW, self.FH = int(max(500, sw - 460)), int(max(320, sh * 0.62))
+        man = pl.read_manifest(results_dir)
+        self.ajustes = {n: dict(man.get(n, {}).get("ajuste") or {}) for _p, n, _r in parts}
+        self.ajustes = {k: v for k, v in self.ajustes.items() if v}
+        self.names = [n for _p, n, _r in parts]
+        self.roles = {n: r for _p, n, r in parts}
+        self.sel = self.names[0]
+        self.st = self.pm = None
+        self._busy = self._dirty = self._sliding = False
+        self._slide_after = self._thumb_after = None
+        self._gen = 0
+        self._build()
+        threading.Thread(target=self._load, daemon=True).start()
+
+    def _build(self):
+        top = ttk.Frame(self, padding=(10, 8))
+        top.pack(fill="x")
+        ttk.Label(top, text=f"Ambiente «{self.key}» · {len(self.parts)} partes",
+                  font=("Segoe UI", 13, "bold")).pack(side="left")
+        self.btn_go = ttk.Button(top, text="✓ Guardar y renderizar", command=self._render_final,
+                                 state="disabled")
+        self.btn_go.pack(side="right")
+        ttk.Button(top, text="📂 Abrir carpeta", command=lambda: open_path(self.results)).pack(side="right", padx=6)
+        bar = ttk.Frame(self, padding=(10, 0))
+        bar.pack(fill="x")
+        self.prog = ttk.Progressbar(bar, mode="indeterminate", maximum=100)
+        self.prog.pack(side="left", fill="x", expand=True)
+        self.prog.start(12)
+        self.status = ttk.Label(bar, text="Preparando el ambiente (orientando las partes)…", width=60)
+        self.status.pack(side="left", padx=8)
+        body = ttk.Frame(self, padding=10)
+        body.pack(fill="both", expand=True)
+        mid = ttk.Frame(body)
+        mid.pack(side="left", fill="both", expand=True)
+        self.face_title = ttk.Label(mid, text="", font=("Segoe UI", 12, "bold"))
+        self.face_title.pack(anchor="w")
+        self.face_cv = tk.Canvas(mid, width=self.FW, height=self.FH, bg="#222", highlightthickness=0)
+        self.face_cv.pack(fill="both", expand=True)
+        strip = ttk.Frame(mid)
+        strip.pack(fill="x", pady=(6, 0))
+        self.cells = {}
+        for n in self.names:
+            cell = tk.Frame(strip, bd=3, relief="flat")
+            cell.pack(side="left", padx=3)
+            lab = ttk.Label(cell, text=n[-22:], font=("Segoe UI", 8, "bold"), cursor="hand2")
+            lab.pack()
+            img = tk.Label(cell, bg="#333", width=18, height=6, cursor="hand2")
+            img.pack()
+            for w in (lab, img):
+                w.bind("<Button-1>", lambda e, n=n: self._select(n))
+            self.cells[n] = (cell, img)
+        right = ttk.Frame(body, width=380)
+        right.pack(side="left", fill="y", padx=(10, 0))
+        self.sel_lbl = ttk.Label(right, text="", font=("Segoe UI", 14, "bold"), wraplength=360)
+        self.sel_lbl.pack(anchor="w")
+        ttk.Label(right, text="Ajusta solo esta parte. Clic en una miniatura para cambiar.",
+                  wraplength=360, foreground="#666").pack(anchor="w")
+        self.sv = {}
+        for key, lab, lo, hi, unit in self.SLIDERS:
+            row = ttk.Frame(right)
+            row.pack(fill="x", pady=(10, 0))
+            head = ttk.Frame(row)
+            head.pack(fill="x")
+            ttk.Label(head, text=lab, font=("Segoe UI", 10, "bold")).pack(side="left")
+            val = ttk.Label(head, text="0", width=8, anchor="e")
+            val.pack(side="right")
+            v = tk.DoubleVar(value=0.0)
+            sc = ttk.Scale(row, from_=lo, to=hi, variable=v, length=360, command=lambda _x, k=key: self._slid(k))
+            sc.pack(fill="x")
+            sc.bind("<Double-Button-1>", lambda e, k=key: self._set_val(k, 0.0))
+            self.sv[key] = (v, val, unit)
+        ttk.Button(right, text="↺ Reiniciar esta parte", command=self._reset).pack(anchor="w", pady=(12, 0))
+        ttk.Label(right, text=f"\nSe guarda en:\n{self.results}", wraplength=360,
+                  foreground="#1f5fa8").pack(anchor="w")
+
+    def _load(self):
+        import cubo
+        try:
+            self.st = cubo.ambiente_cams(self.parts)
+            self.pm = {n: cubo.preview_model(m, 300_000) for n, m in self.st["models"].items()}
+        except Exception as e:
+            err = f"Error: {e}"
+            self.after(0, lambda: self.status.config(text=err))
+            return
+        self.after(0, self._loaded)
+
+    def _loaded(self):
+        self.prog.stop()
+        self.prog.configure(mode="determinate", value=0)
+        self.status.config(text="Listo. Mueve los controles: la vista se actualiza en vivo.")
+        self.btn_go.state(["!disabled"])
+        self._select(self.sel)
+        self._thumbs()
+
+    def _cam(self, n, adj):
+        import cubo
+        cam, clip = self.st["cams"][n]
+        return cubo.adjust_cam(cam, cubo.ui_to_adj(adj, cam)), clip
+
+    def _changed(self):
+        self._dirty = True
+        if not self._busy:
+            self._kick()
+        if self._thumb_after:
+            self.after_cancel(self._thumb_after)
+        self._thumb_after = self.after(600, self._thumbs)
+
+    def _kick(self):
+        if self.st is None or not self._dirty:
+            return
+        self._dirty, self._busy = False, True
+        self._gen += 1
+        gen, n = self._gen, self.sel
+        cam, clip = self._cam(n, self.ajustes.get(n))
+        cap = 700 if self._sliding else 1600
+        fw, fh = self.FW, self.FH
+
+        def work():
+            import render_ortho as ro
+            du, dv = cam.u_range[1] - cam.u_range[0], cam.v_range[1] - cam.v_range[0]
+            ext = max(du, dv)
+            ls = int(max(fw * ext / du if du / dv > fw / fh else fh * ext / dv, 64))
+            im = ro.render(self.pm[n], cam, min(ls, cap), clip / max(ext, 1e-9), background=(34, 34, 34))
+            self.after(0, lambda: self._done_live(gen, im))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _done_live(self, gen, im):
+        from PIL import ImageTk
+        self._busy = False
+        if gen == self._gen:
+            cv = self.face_cv
+            cv.delete("all")
+            W, H = int(cv.winfo_width() or self.FW), int(cv.winfo_height() or self.FH)
+            im = im.copy()
+            im.thumbnail((W, H))
+            self._photo = ImageTk.PhotoImage(im)
+            x0, y0 = (W - im.size[0]) // 2, (H - im.size[1]) // 2
+            cv.create_image(x0, y0, image=self._photo, anchor="nw")
+            for i in range(1, 12):
+                x = x0 + im.size[0] * i / 12
+                cv.create_line(x, y0, x, y0 + im.size[1], fill="#9e9e9e", stipple="gray25")
+            for i in range(1, 8):
+                y = y0 + im.size[1] * i / 8
+                cv.create_line(x0, y, x0 + im.size[0], y, fill="#9e9e9e", stipple="gray25")
+        if self._dirty:
+            self._kick()
+
+    def _thumbs(self):
+        if self.st is None:
+            return
+        cams = {n: self._cam(n, self.ajustes.get(n)) for n in self.names}
+
+        def work():
+            import render_ortho as ro
+            out = {}
+            for n, (cam, clip) in cams.items():
+                ext = max(cam.u_range[1] - cam.u_range[0], cam.v_range[1] - cam.v_range[0])
+                out[n] = ro.render(self.pm[n], cam, 150, clip / max(ext, 1e-9), background=(34, 34, 34))
+            self.after(0, lambda: self._thumbs_show(out))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _thumbs_show(self, imgs):
+        from PIL import ImageTk
+        self._tph = {}
+        for n, (cell, lab) in self.cells.items():
+            cell.configure(relief="solid" if n == self.sel else "flat")
+            im = imgs.get(n)
+            if im is None:
+                continue
+            im = im.copy()
+            im.thumbnail((150, 100))
+            self._tph[n] = ImageTk.PhotoImage(im)
+            lab.configure(image=self._tph[n], width=150, height=100)
+
+    def _select(self, n):
+        self.sel = n
+        rol = {"pared": "pared", "suelo": "planta / piso", "techo": "techo"}[self.roles[n]]
+        self.sel_lbl.config(text=n)
+        self.face_title.config(text=f"{n}  ({rol}, vista desde dentro del ambiente)")
+        adj = self.ajustes.get(n, {})
+        for key, (v, lab, unit) in self.sv.items():
+            val = float(adj.get(key, 0))
+            v.set(val)
+            lab.config(text=f"{val:+.1f}{unit}")
+        for k, (cell, _l) in self.cells.items():
+            cell.configure(relief="solid" if k == n else "flat")
+        self._changed()
+
+    def _set_val(self, key, val):
+        v, lab, unit = self.sv[key]
+        val = round(float(val), 1)
+        v.set(val)
+        lab.config(text=f"{val:+.1f}{unit}")
+        adj = self.ajustes.setdefault(self.sel, {})
+        adj[key] = val
+        if not any(abs(float(x)) > 1e-9 for x in adj.values()):
+            self.ajustes.pop(self.sel, None)
+        self._changed()
+
+    def _slid(self, key):
+        self._sliding = True
+        if self._slide_after:
+            self.after_cancel(self._slide_after)
+        self._slide_after = self.after(350, self._slide_end)
+        self._set_val(key, float(self.sv[key][0].get()))
+
+    def _slide_end(self):
+        self._sliding = False
+        self._changed()
+
+    def _reset(self):
+        self.ajustes.pop(self.sel, None)
+        self._select(self.sel)
+
+    def _render_final(self):
+        import cubo
+        man = pl.read_manifest(self.results)
+        rots = {}
+        for p_, n, r in self.parts:
+            e = man.get(n) or {"ply": p_, "flip": False, "rot": 0}
+            e.update(ambiente=self.key, rol=r)
+            if self.ajustes.get(n):
+                e["ajuste"] = self.ajustes[n]
+            else:
+                e.pop("ajuste", None)
+            man[n] = e
+            rots[n] = int(e.get("rot", 0))
+        pl.write_manifest(self.results, man)
+        self.btn_go.state(["disabled"])
+        cfg = self.app.cfg
+
+        def prog(i, n, k):
+            self.after(0, lambda: (self.prog.configure(value=100.0 * i / max(n, 1)),
+                                   self.status.config(text=f"Renderizando {k}…")))
+
+        def work():
+            try:
+                cubo.render_ambiente(self.parts, self.results, long_side=int(cfg["render_lado_largo_px"]),
+                                     background=tuple(cfg.get("render_fondo_color", (0, 0, 0))),
+                                     rots=rots, ajustes=self.ajustes, setup=self.st,
+                                     progress=prog, log=lambda *_: None)
+                msg = f"✓ Listo: {len(self.parts)} caras guardadas"
+            except Exception as ex:
+                msg = f"Error: {ex}"
+            self.after(0, lambda: self._final_done(msg))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _final_done(self, msg):
+        self.prog.configure(value=100 if msg.startswith("✓") else 0)
+        self.status.config(text=msg)
+        self.btn_go.state(["!disabled"])
+        self.app.q.put(("log", f"Ambiente {self.key}: {msg}"))
+        self.app._thumbs.clear()
+        self.app._show_current()
 
 
 def main():

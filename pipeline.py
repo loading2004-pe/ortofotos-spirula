@@ -735,13 +735,16 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
                 for old in (os.path.join(out_dir, n + ".png"), os.path.join(out_dir, "x_" + n + ".png")):
                     if os.path.exists(old):
                         os.remove(old)
+            ajs = {n: man.get(n, {}).get("ajuste") for _p, n, _r in parts if man.get(n, {}).get("ajuste")}
             infos = cubo.render_ambiente(parts, out_dir, long_side=int(cfg["render_lado_largo_px"]),
                                          background=tuple(cfg.get("render_fondo_color", (0, 0, 0))),
                                          margin=max(0.02, float(cfg["render_margen"])), rots=rots,
-                                         log=lambda *_: None)
+                                         log=lambda *_: None, ajustes=ajs)
             with lock:
                 for p_, n, r in parts:
                     man[n] = {"ply": p_, "flip": False, "rot": rots.get(n, 0), "ambiente": key, "rol": r}
+                    if ajs.get(n):
+                        man[n]["ajuste"] = ajs[n]
                 write_manifest(out_dir, man)
             for _p, n, r in parts:
                 sz = infos[n]["size"]

@@ -552,8 +552,12 @@ class App(tk.Tk):
         ttk.Button(bar2, text="🧊 Visor 6 caras", command=self._open_cube_viewer).pack(side="left")
         self.link_lbl = ttk.Label(right, text="", foreground="#555")
         self.link_lbl.pack(anchor="w", pady=(4, 0))
-        self.rev_name = ttk.Label(right, text="", font=("Segoe UI", 12, "bold"))
-        self.rev_name.pack(anchor="w", pady=4)
+        nm_row = ttk.Frame(right)
+        nm_row.pack(fill="x", pady=4)
+        self.rev_name = ttk.Label(nm_row, text="", font=("Segoe UI", 12, "bold"))
+        self.rev_name.pack(side="left")
+        self.faces_btn = ttk.Button(nm_row, text="📂 Abrir sus 6 caras", command=self._open_faces)
+        self.faces_lbl = ttk.Label(nm_row, text="", foreground="#1f5fa8")
         self.canvas = tk.Canvas(right, bg="#2b2b2b", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda e: self._show_current())
@@ -672,6 +676,7 @@ class App(tk.Tk):
             return
         p = self.files[i]
         self.rev_name.config(text=os.path.basename(p))
+        self._update_faces_link(p)
         try:
             im = self._thumb(p).copy()
         except Exception as e:
@@ -805,6 +810,30 @@ class App(tk.Tk):
                              if self._link_done < self._link_total
                              else f"Listo: {self._link_total} ortofoto(s) · última: {name} {det}")
         self.q.put(("log", f"{time.strftime('%H:%M:%S')} {name}: {st} {det}"))
+
+    def _faces_dir_for(self, p):
+        import cubo
+        fname = os.path.basename(p)
+        name = os.path.splitext(fname[2:] if fname.lower().startswith("x_") else fname)[0]
+        return cubo.faces_dir(os.path.dirname(p), name)
+
+    def _update_faces_link(self, p):
+        d = self._faces_dir_for(p)
+        if os.path.isdir(d):
+            n = len([f for f in os.listdir(d) if f.lower().endswith(".png")])
+            self.faces_lbl.config(text=f"  ambiente de {n} caras · guardadas en: {d}")
+            self.faces_btn.pack(side="left", padx=(12, 0))
+            self.faces_lbl.pack(side="left")
+        else:
+            self.faces_btn.pack_forget()
+            self.faces_lbl.pack_forget()
+
+    def _open_faces(self):
+        i = self._cur()
+        if i is not None:
+            d = self._faces_dir_for(self.files[i])
+            if os.path.isdir(d):
+                open_path(d)
 
     def _ply_for(self, name, d):
         """(.ply, entrada del manifiesto) de una imagen de la carpeta de revisión."""
@@ -1512,7 +1541,7 @@ class CubeViewer(tk.Toplevel):
         self.app, self.name, self.ply, self.wd, self.results = app, name, ply, wd, results_dir
         self.entry = entry or {}
         self.title(f"Visor 6 caras — {name}")
-        self.geometry("1260x760")
+        self._place_beside(app)
         import cubo
         conf = dict(self.entry.get("cubo") or (cubo.load_config(wd) if wd else {}))
         self.tipo = tk.StringVar(value=conf.get("tipo", "auto"))
@@ -1553,9 +1582,124 @@ class CubeViewer(tk.Toplevel):
         ttk.Button(r2, text="Cerrar", command=self.destroy).pack(side="left", padx=8)
         self.status = ttk.Label(r2, text="", foreground="#1f5fa8")
         self.status.pack(side="left", padx=8)
+        res = ttk.LabelFrame(right, text="  Resultado guardado  ", padding=6)
+        res.pack(fill="x", pady=(8, 0))
+        self.res_lbl = ttk.Label(res, text="Todavía no hay caras guardadas para esta carpeta.",
+                                 wraplength=640, justify="left")
+        self.res_lbl.pack(anchor="w")
+        rb = ttk.Frame(res)
+        rb.pack(anchor="w", pady=(4, 0))
+        self.btn_open_dir = ttk.Button(rb, text="📂 Abrir carpeta de las caras", command=self._open_dir,
+                                       state="disabled")
+        self.btn_open_dir.pack(side="left")
+        self.btn_open_sheet = ttk.Button(rb, text="🖼 Ver lámina (cubo desplegado)",
+                                         command=self._open_sheet, state="disabled")
+        self.btn_open_sheet.pack(side="left", padx=6)
+        self.btn_show_saved = ttk.Button(rb, text="Ver aquí las caras guardadas", command=self._show_saved,
+                                         state="disabled")
+        self.btn_show_saved.pack(side="left")
+        self.grid_title = ttk.Label(right, text="", font=("Segoe UI", 10, "bold"))
+        self.grid_title.pack(anchor="w", pady=(8, 0))
         self.grid_f = ttk.Frame(right)
-        self.grid_f.pack(fill="both", expand=True, pady=(8, 0))
+        self.grid_f.pack(fill="both", expand=True)
+        self._refresh_saved()
         threading.Thread(target=self._load, daemon=True).start()
+
+    # ---- ventana al lado de la principal (no encima)
+    def _place_beside(self, app, w=1180, h=820):
+        app.update_idletasks()
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        ax, ay = app.winfo_rootx(), app.winfo_rooty()
+        aw = app.winfo_width()
+        h = min(h, sh - 80)
+        if ax + aw + 10 + w <= sw:
+            x = ax + aw + 10
+        elif ax - 10 - w >= 0:
+            x = ax - 10 - w
+        else:   # no entra: pantalla partida, la app a la izquierda y el visor a la derecha
+            half = sw // 2
+            try:
+                app.state("normal")
+                app.geometry(f"{half - 10}x{sh - 80}+0+0")
+            except tk.TclError:
+                pass
+            x, w = half, sw - half
+        self.geometry(f"{w}x{h}+{max(0, x)}+{max(0, min(ay, sh - h - 40))}")
+
+    # ---- resultado guardado
+    def _faces_dir(self):
+        import cubo
+        return cubo.faces_dir(self.results, self.name)
+
+    def _saved_files(self):
+        d = self._faces_dir()
+        return sorted(os.path.join(d, f) for f in os.listdir(d) if f.lower().endswith(".png")) \
+            if os.path.isdir(d) else []
+
+    def _refresh_saved(self):
+        files = self._saved_files()
+        sheet = os.path.join(self.results, self.name + ".png")
+        if files:
+            self.res_lbl.config(text=f"{len(files)} caras guardadas en:\n{self._faces_dir()}\n"
+                                     f"Lámina del cubo desplegado: {sheet}")
+            for b in (self.btn_open_dir, self.btn_open_sheet, self.btn_show_saved):
+                b.state(["!disabled"])
+        else:
+            self.res_lbl.config(text="Todavía no hay caras guardadas para esta carpeta"
+                                     + (f" (la ortofoto normal está en {sheet})." if os.path.isfile(sheet)
+                                        else "."))
+            for b in (self.btn_open_dir, self.btn_show_saved):
+                b.state(["disabled"])
+            self.btn_open_sheet.state(["!disabled"] if os.path.isfile(sheet) else ["disabled"])
+
+    def _open_dir(self):
+        if os.path.isdir(self._faces_dir()):
+            open_path(self._faces_dir())
+
+    def _open_sheet(self):
+        p = os.path.join(self.results, self.name + ".png")
+        if os.path.isfile(p):
+            open_path(p)
+
+    def _show_saved(self):
+        """Muestra en el visor las caras YA guardadas (las de alta resolución)."""
+        files = self._saved_files()
+        if not files:
+            return
+        self.status.config(text="Cargando caras guardadas…")
+
+        def work():
+            from PIL import Image
+            out = []
+            for f in files:
+                try:
+                    with Image.open(f) as im:
+                        im.draft("RGB", (self.TH * 2, self.TH * 2))
+                        t = im.convert("RGB")
+                        t.thumbnail((self.TH, self.TH))
+                        out.append((f, t))
+                except OSError:
+                    pass
+            self.after(0, lambda: self._show_files(out))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_files(self, items):
+        from PIL import ImageTk
+        for w in self.grid_f.winfo_children():
+            w.destroy()
+        self._imgs = [i for i in self._imgs[:1]]
+        self.grid_title.config(text="Caras guardadas (doble clic para abrir en alta):")
+        for i, (f, im) in enumerate(items):
+            cell = ttk.Frame(self.grid_f)
+            cell.grid(row=i // 3, column=i % 3, padx=6, pady=6, sticky="n")
+            lab = os.path.splitext(os.path.basename(f))[0].split(" - ", 1)[-1]
+            ttk.Label(cell, text=lab, font=("Segoe UI", 10, "bold")).pack(anchor="w")
+            t = ImageTk.PhotoImage(im)
+            self._imgs.append(t)
+            w = tk.Label(cell, image=t, bg="#222", cursor="hand2")
+            w.pack()
+            w.bind("<Double-Button-1>", lambda e, f=f: open_path(f))
+        self.status.config(text="")
 
     def _eff_tipo(self):
         t = self.tipo.get()
@@ -1637,6 +1781,7 @@ class CubeViewer(tk.Toplevel):
         cv.create_text(W - 20, 18, text="N ↑", fill="#ff5252", font=("Segoe UI", 12, "bold"))
         for w in self.grid_f.winfo_children():
             w.destroy()
+        self.grid_title.config(text="Vista previa (rápida, baja resolución):" if cube else "")
         if not cube:
             ttk.Label(self.grid_f, text="Se renderiza como siempre: se busca el plano principal "
                                         "(la puerta, ventana o fachada) y se endereza.",
@@ -1708,6 +1853,9 @@ class CubeViewer(tk.Toplevel):
     def _done(self, msg):
         self.status.config(text=msg)
         self.btn_go.state(["!disabled"])
+        self._refresh_saved()
+        if self._saved_files():
+            self._show_saved()
         self.app.q.put(("log", f"{self.name}: {msg}"))
         self.app._thumbs.clear()
         self.app.load_review()

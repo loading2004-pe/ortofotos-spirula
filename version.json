@@ -1,16 +1,16 @@
 {
- "version": "2026.11.23.1",
- "fecha": "2026-11-23 09:20",
- "notas": "Interiores y exteriores de 6 caras: se detectan solos y se renderiza cada cara (paredes N/E/S/O, techo, suelo) más el cubo desplegado. Nuevo botón '🧊 Visor 6 caras' en 2. Revisar.",
+ "version": "2026.11.23.2",
+ "fecha": "2026-11-23 09:28",
+ "notas": "Visor 6 caras: se abre al lado de la ventana principal (no encima), muestra dónde se guardaron las caras, botones para abrir la carpeta y la lámina, y enseña las caras guardadas. En 2. Revisar aparece 'Abrir sus 6 caras'.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "51bed3c72ec8959cd68f514662ae26174b8bf4b0251678c0f974e6cafacda01d",
-  "pipeline.py": "aafa37ca6901da5ffe785138a6e65d5d28f0c6bb1aa228bf44a621833d9b2d96",
+  "app.py": "2496c6ea529b8029473318d93b50fab2bebd3ef7cde6aec68800dd0a857e8139",
+  "pipeline.py": "c44c38246c2cda28e7e0ede72dfe26b24c7a131cfa56bf07dcabe9befce55783",
   "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "106a965a45351665bc189a6efb3c68ddccef1eef8b438ceaf4a4470d440d622c",
+  "app_version.py": "677a901d51dc242f7404e0ef665349b77f57acfaf35f554e636c63b1013f33e5",
   "cubo.py": "46fd34bd2460c36c73c9a4677228c8dc52de81e85b6e2bd2d0be7ce7a8d09575"
  }
 }

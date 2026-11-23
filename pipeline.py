@@ -355,7 +355,8 @@ class Runner:
             modo = "" if info.get("modo") == "fachada" else f"{info.get('modo')}, "
             self._set(job, "listo", f"{modo}{info['size'][0]}x{info['size'][1]} px, "
                                     f"giro {info['roll_fix_deg']:+.2f}°, {tt/60:.1f} min{origen}")
-            self.log(f"OK  {job.name}")
+            self.log(f"OK  {job.name}" + (f"  ({info['modo']} → {info['carpeta']})"
+                                          if info.get("carpeta") else ""))
         except Cancelled:
             self._set(job, "cancelado")
         except Exception as e:

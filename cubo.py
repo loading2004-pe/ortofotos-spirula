@@ -592,6 +592,64 @@ def _subset(model, mask):
     return {k: (v[mask] if isinstance(v, np.ndarray) and len(v) == n else v) for k, v in model.items()}
 
 
+def _ransac_plane(P, rng, ref, want_parallel, iters=500):
+    """Normal del plano con más puntos: paralela a 'ref' (techo/planta) o perpendicular (pared)."""
+    if len(P) < 100:
+        return None
+    lo, hi = np.percentile(P, 1, axis=0), np.percentile(P, 99, axis=0)
+    Q = P[np.all((P >= lo) & (P <= hi), axis=1)]
+    if len(Q) > 60_000:
+        Q = Q[rng.choice(len(Q), 60_000, replace=False)]
+    tau = 0.006 * float(np.linalg.norm(hi - lo))
+    best, bn, bp = -1, None, None
+    for _ in range(iters):
+        p1, p2, p3 = Q[rng.choice(len(Q), 3, replace=False)]
+        n = np.cross(p2 - p1, p3 - p1)
+        nn = np.linalg.norm(n)
+        if nn < 1e-12:
+            continue
+        n = n / nn
+        c = abs(float(n @ ref))
+        if (want_parallel and c < 0.75) or (not want_parallel and c > 0.6):
+            continue
+        sc = int(np.count_nonzero(np.abs((Q - p1) @ n) < tau))
+        if sc > best:
+            best, bn, bp = sc, n, p1
+    if bn is None:
+        return None
+    inl = Q[np.abs((Q - bp) @ bn) < tau]
+    if len(inl) > 50:
+        _, _, vt = np.linalg.svd(inl - inl.mean(0), full_matrices=False)
+        bn = vt[2]
+    return _unit(bn)
+
+
+def wide_tilt(img):
+    """Giro de cámara (grados, ±45) que deja las líneas dominantes de la imagen horizontales y
+    verticales. 0 si no hay una orientación clara."""
+    from PIL import ImageFilter
+    g = img.convert("L")
+    if max(g.size) > 1000:
+        k = 1000 / max(g.size)
+        g = g.resize((max(1, int(g.size[0] * k)), max(1, int(g.size[1] * k))))
+    a = np.asarray(g.filter(ImageFilter.GaussianBlur(2)), np.float32)
+    gx = np.zeros_like(a)
+    gy = np.zeros_like(a)
+    gx[:, 1:-1] = a[:, 2:] - a[:, :-2]
+    gy[1:-1, :] = a[2:, :] - a[:-2, :]
+    mag = np.hypot(gx, gy)
+    m = mag > max(np.percentile(mag, 92), 6)
+    if m.sum() < 300:
+        return 0.0
+    th = (np.degrees(np.arctan2(gy[m], gx[m])) + 45) % 90 - 45
+    h, e = np.histogram(th, bins=180, range=(-45, 45), weights=mag[m])
+    h = np.convolve(np.r_[h[-3:], h, h[:3]], np.ones(5) / 5, "same")[3:-3]
+    j = int(np.argmax(h))
+    if h[j] < 2.5 * h.mean():
+        return 0.0
+    return -float(0.5 * (e[j] + e[j + 1]))
+
+
 def ambiente_cams(parts, margin=0.04, progress=None, read=None):
     """Prepara un ambiente por partes: {'models', 'cams': {nombre: (OrthoCam, recorte)}, 'roles'}."""
     import render_ortho as ro
@@ -630,10 +688,37 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None):
     up0 = None
     if tops and bots:
         up0 = _unit(np.mean(tops, 0) - np.mean(bots, 0))
-    an = analyze(merged, None, [up0] if up0 is not None else None)
+    # vertical precisa con los planos de cada recorte: paredes ⟂ arriba, techo/planta ∥ arriba
+    if up0 is not None:
+        rng0 = np.random.default_rng(1)
+        M = np.zeros((3, 3))
+        wall_ns = []
+        for n_, P_ in allp.items():
+            horiz = roles[n_] != "pared"
+            pn = _ransac_plane(P_, rng0, ref=up0, want_parallel=horiz)
+            if pn is None:
+                continue
+            if horiz:
+                M += 2.0 * np.outer(pn, pn)
+            else:
+                M -= np.outer(pn, pn)
+                wall_ns.append(pn)
+        if wall_ns:
+            ev, V = np.linalg.eigh(M)
+            upr = _unit(V[:, -1])
+            if upr @ up0 < 0:
+                upr = -upr
+            if upr @ up0 > math.cos(math.radians(60)):
+                up0 = upr
+        d0g = None
+        if wall_ns:
+            w = wall_ns[0] - (wall_ns[0] @ up0) * up0
+            if np.linalg.norm(w) > 1e-6:
+                d0g = w
+        an = analyze(merged, None, None, up=up0, d0=d0g)
+    else:
+        an = analyze(merged, None, None)
     up, d0, d1 = (np.array(an[k], float) for k in ("up", "d0", "d1"))
-    if up0 is not None and up @ up0 < 0:
-        up = -up
     allpts = np.vstack(list(allp.values()))
     ctr = np.median(allpts, 0)
     size = float(np.percentile(np.linalg.norm(allpts - ctr, axis=1), 95)) * 2
@@ -701,8 +786,14 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None):
         # enderezar la cara con sus propias líneas (puertas, ventanas, bordes)
         try:
             ext0 = max(u1 - u0, v1 - v0)
-            prev = render(preview_model(models[name], 300_000), cam, 1000, (0.04 * size) / max(ext0, 1e-9))
-            ang = straighten_angle(prev)
+            pmod = preview_model(models[name], 300_000)
+            fcl = (0.04 * size) / max(ext0, 1e-9)
+            prev = render(pmod, cam, 1000, fcl)
+            ang = wide_tilt(prev)            # hasta ±45°: líneas dominantes a horizontal/vertical
+            if abs(ang) > 0.3:
+                cam = rotate_camera(cam, ang)
+                prev = render(pmod, cam, 1000, fcl)
+            ang = straighten_angle(prev)       # ajuste fino
             if abs(ang) > 0.05:
                 cam = rotate_camera(cam, ang)
         except Exception:

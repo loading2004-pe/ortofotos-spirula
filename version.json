@@ -1,7 +1,7 @@
 {
- "version": "2026.11.23.14",
- "fecha": "2026-11-23 15:39",
- "notas": "Visor 6 caras y ambientes: Enderezar sin límite (−180° a 180°), botones ⟲ 90° / ⟳ 90°, botones − + de 0,1° y casilla para escribir el valor exacto. Girar e Inclinar con más rango.",
+ "version": "2026.11.23.15",
+ "fecha": "2026-11-23 15:47",
+ "notas": "Ambientes por partes: vertical calculada con los planos de todas las paredes, techo y planta (más precisa) y enderezado automático de hasta 45°. Techo y planta ya no salen oblicuos.",
  "min_lanzador": 1,
  "archivos": {
   "app.py": "8378d923fd11aff17ebd2d8305e334749d359c912c119ff396b92888c390bb40",
@@ -10,7 +10,7 @@
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "d8c7ad796deb08c8f7558242bdf0bec71399947a26d1aa9fdfe0da4f0a0ea7ed",
-  "cubo.py": "c825fff64ff8940d28d941e6d78ecc0fc938982a3dd9a1f0556a4826c3e190f3"
+  "app_version.py": "9642bad936bf0b4e3ae663d6d0497cfefcf5f43a2f61419e7d346981bbabb4b8",
+  "cubo.py": "499790b7b689ed89a77bb05f7311ae4daf1425b07aceb0c91d6a2ff47bee43a7"
  }
 }

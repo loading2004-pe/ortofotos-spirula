@@ -1,16 +1,16 @@
 {
- "version": "2026.11.24.5",
- "fecha": "2026-11-24 18:17",
- "notas": "«2. Revisar» se abre en la última carpeta que revisaste (no siempre en resultados).",
+ "version": "2026.11.24.6",
+ "fecha": "2026-11-24 18:54",
+ "notas": "Cada PNG resultante queda también dentro de su carpeta «<prefijo><nombre>» (ej. 4.b12-p3-a\\b12-p3-a.png), sin ocupar espacio extra. El prefijo (4.) se cambia en «2. Revisar» (Carpeta por PNG) o en Configuración; al cambiarlo, las carpetas se renombran solas.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "d636a2ecc96de701a3728467915cf22a5ebf849869c94e7848bb7c149fd4fac6",
-  "pipeline.py": "ae8f09dfa2d4c8cbaee0ec0f4ef09201020ba042599c327f346295216e543500",
+  "app.py": "2a77eb6834f0e0c564a0ca2bacd5f5a305bf4fa4403e8115d43d208f93e749af",
+  "pipeline.py": "09858dc68060b921b416073edbaeed8e70d98dc245b79a7f369c6fce3dba962d",
   "render_ortho.py": "a829838a79470a326bba30ee702a87ee06f96a5803877e59196cc6fc167733d7",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "9f827d9b00ef81a0f557d189004ba62aa30130104c8f0996530f2f482410a021",
+  "app_version.py": "7b62fc009b2c7cf35f080fb6ee240cd1d2832b8d018b23cd4dcf71caed73f862",
   "cubo.py": "d59f820fb3dae8fdce0472cc97fcfe5d550c5a32affe4ed55b29ed03535f2a59"
  }
 }

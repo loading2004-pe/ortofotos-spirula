@@ -128,6 +128,8 @@ FIELDS = [  # (clave, etiqueta, tipo)
     ("render_plano_vertical", "Render: fachada vertical (puertas/ventanas)", bool),
     ("render_fondo_transparente", "Render: fondo transparente", bool),
     ("render_margen", "Render: margen alrededor", float),
+    ("carpeta_por_png", "Cada PNG en su carpeta «<prefijo><nombre>»", bool),
+    ("prefijo_carpeta_png", "Prefijo de esas carpetas (ej. 4.)", str),
     ("nombre_minusculas", "Nombres en minúsculas (p-34 cara a)", bool),
     ("min_videos", "Mínimo de videos por carpeta", int),
     ("min_fotos", "Mínimo de fotos por carpeta (si no hay videos)", int),
@@ -552,6 +554,12 @@ class App(tk.Tk):
                            values=[c[0] for c in CALIDADES])
         cbq.pack(side="left", padx=4)
         cbq.bind("<<ComboboxSelected>>", self._set_calidad)
+        ttk.Label(top, text="   Carpeta por PNG, prefijo:").pack(side="left")
+        self.prefijo_var = tk.StringVar(value=str(self.cfg.get("prefijo_carpeta_png", "4.")))
+        ep = ttk.Entry(top, textvariable=self.prefijo_var, width=6)
+        ep.pack(side="left", padx=2)
+        ep.bind("<Return>", lambda e: self._set_prefijo())
+        ep.bind("<FocusOut>", lambda e: self._set_prefijo())
         bar = ttk.Frame(right)
         bar.pack(fill="x")
         ttk.Button(bar, text="← Anterior", command=lambda: self._step(-1)).pack(side="left")
@@ -666,9 +674,27 @@ class App(tk.Tk):
         self.review_dir = None
         self.load_review()
 
+    def _set_prefijo(self):
+        v = self.prefijo_var.get().strip()
+        if v == str(self.cfg.get("prefijo_carpeta_png", "")):
+            return
+        self.cfg["prefijo_carpeta_png"] = v
+        try:
+            pl.save_config(CONFIG_PATH, self.cfg)
+        except OSError:
+            pass
+        self._sync_folders()
+        self.q.put(("log", f"Carpetas por PNG: prefijo «{v}» (ej. {v}nombre\\nombre.png)"))
+
+    def _sync_folders(self, d=None):
+        d = d or self._results_dir()
+        cfg = dict(self.cfg)
+        threading.Thread(target=lambda: pl.sync_png_folders(d, cfg), daemon=True).start()
+
     def load_review(self):
         self._review_cleared = False
         d = self._results_dir()
+        self._sync_folders(d)
         self.rev_dir_lbl.config(text=d)
         lk = self.cfg.get("carpeta_ply_limpios", "")
         if lk and not self._linked_busy:
@@ -984,7 +1010,7 @@ class App(tk.Tk):
                 except Exception as e:
                     msg = f"{name}: no se pudo girar ({e})"
                 self.after(0, lambda: (self._thumbs.clear(), self.link_lbl.config(text=msg),
-                                       self._show_current()))
+                                       self._show_current(), self._sync_folders()))
             threading.Thread(target=turn, daemon=True).start()
             return
         if self._linked_busy:
@@ -2651,6 +2677,7 @@ class AmbienteViewer(tk.Toplevel):
         self.app.q.put(("log", f"Ambiente {self.key}: {msg}"))
         self.app._thumbs.clear()
         self.app._show_current()
+        self.app._sync_folders(self.results)
 
 
 class DoorViewer(AmbienteViewer):

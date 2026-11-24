@@ -55,6 +55,8 @@ DEFAULT_CONFIG = {
     "min_videos": 2,
     "min_fotos": 8,
     "render_detectar_cubo": True,   # (modo "auto") detectar interiores/exteriores de 6 caras
+    "carpeta_por_png": True,         # cada PNG también dentro de su carpeta <prefijo><nombre>
+    "prefijo_carpeta_png": "4.",
     "modo_render": "normal",        # normal (puertas/ventanas) | exterior | interior | auto                 # fotos mínimas para procesar una carpeta solo con fotos
     "entrenar_cache_ram": True,     # --cache-images cpu si caben en RAM (no cambia el resultado)
     "url_actualizaciones": "",      # vacío = servidor por defecto
@@ -167,6 +169,60 @@ def _why(tail):
         if any(w in low for w in _ERR_WORDS):
             return line[:220]
     return tail[-1][:220] if tail else ""
+
+
+def sync_png_folders(d, cfg, log=None):
+    """Cada PNG de la carpeta queda también dentro de su propia carpeta «<prefijo><nombre>»
+    (p. ej. 4.b12-p3-a/b12-p3-a.png). Es un enlace al mismo archivo (no ocupa espacio extra);
+    si el disco no lo permite, una copia. Si cambia el prefijo, las carpetas se renombran."""
+    if not cfg.get("carpeta_por_png", True) or not d or not os.path.isdir(d):
+        return 0
+    pre = str(cfg.get("prefijo_carpeta_png", "") or "")
+    pre = re.sub(r'[<>:"/\\|?*]', "", pre)
+    reg_path = os.path.join(d, ".carpetas_png.json")
+    try:
+        with open(reg_path, encoding="utf-8") as f:
+            reg = json.load(f)
+    except (OSError, ValueError):
+        reg = {}
+    n = 0
+    for f in sorted(os.listdir(d)):
+        src = os.path.join(d, f)
+        if not f.lower().endswith(".png") or not os.path.isfile(src):
+            continue
+        stem = os.path.splitext(f)[0]
+        clean = stem[2:] if stem.lower().startswith("x_") else stem
+        want = os.path.join(d, pre + clean)
+        old = reg.get(clean)
+        try:
+            if old and old != os.path.basename(want) and os.path.isdir(os.path.join(d, old)) \
+                    and not os.path.exists(want):
+                os.rename(os.path.join(d, old), want)          # cambió el prefijo
+            os.makedirs(want, exist_ok=True)
+            for g in os.listdir(want):                          # quita el nombre viejo (x_ / sin x_)
+                if g.lower().endswith(".png") and g != f and os.path.splitext(g)[0] in (clean, "x_" + clean):
+                    os.remove(os.path.join(want, g))
+            dst = os.path.join(want, f)
+            if os.path.exists(dst):
+                if os.path.samefile(src, dst):
+                    reg[clean] = os.path.basename(want)
+                    continue
+                os.remove(dst)
+            try:
+                os.link(src, dst)
+            except OSError:
+                shutil.copy2(src, dst)
+            reg[clean] = os.path.basename(want)
+            n += 1
+        except OSError as e:
+            if log:
+                log(f"carpeta de {f}: {e}")
+    try:
+        with open(reg_path, "w", encoding="utf-8") as fh:
+            json.dump(reg, fh, ensure_ascii=False, indent=1)
+    except OSError:
+        pass
+    return n
 
 
 def _sfm_partial_done(logf, ds):
@@ -408,6 +464,7 @@ class Runner:
                                    run_dir=os.path.join(runs, "modelo"))
                 job.times["render"] = time.time() - t
             job.result = out_png
+            sync_png_folders(self.results, cfg, self.log)
             tt = sum(job.times.values())
             try:
                 with open(logf, "a", encoding="utf-8") as lf:
@@ -874,6 +931,7 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
     cache.clear()
     with ThreadPoolExecutor(max_workers=max(1, int(cfg.get("paralelo_render", 2)))) as ex:
         list(ex.map(one, items))
+    sync_png_folders(out_dir, cfg)
 
 
 def render_auto(ply, out_png, name, cfg, wd=None, cams=None, ups=None, workspace=None, run_dir=None,

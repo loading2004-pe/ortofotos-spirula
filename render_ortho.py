@@ -320,6 +320,39 @@ def fit_facade_plane(xyz, alpha, scale, up_ref, cam_centers, rng, vertical=True,
     return _unit(best_n), best_p, inl if len(inl) > 50 else pts, extent
 
 
+def guess_up_without_cams(model, alpha=None, rng=None):
+    """Vertical de un modelo SIN cámaras (p. ej. un .ply limpiado en SuperSplat).
+    Spirula/SuperSplat suelen dejar la vertical en -Y; algunos modelos la tienen en -Z.
+    Se mira hacia dónde mira el plano dominante (la puerta/ventana): si mira a lo largo de Y,
+    Y no puede ser la vertical y se usa Z."""
+    rng = rng or np.random.default_rng(0)
+    if alpha is None:
+        alpha = 1 / (1 + np.exp(-model["opacity"]))
+    P = model["xyz"][alpha.ravel() > 0.5]
+    if len(P) > 150_000:
+        P = P[rng.choice(len(P), 150_000, replace=False)]
+    if len(P) < 100:
+        return np.array([0.0, -1.0, 0.0])
+    lo, hi = np.percentile(P, 2, 0), np.percentile(P, 98, 0)
+    tau = 0.01 * float(np.linalg.norm(hi - lo))
+    best, bn = -1, np.array([0.0, 0.0, 1.0])
+    for _ in range(800):
+        a, b, c = P[rng.choice(len(P), 3, replace=False)]
+        n = np.cross(b - a, c - a)
+        ln = np.linalg.norm(n)
+        if ln < 1e-12:
+            continue
+        n = n / ln
+        k = int((np.abs((P - a) @ n) < tau).sum())
+        if k > best:
+            best, bn = k, n
+    if abs(bn[1]) < 0.6:
+        return np.array([0.0, -1.0, 0.0])
+    if abs(bn[2]) < 0.6:
+        return np.array([0.0, 0.0, -1.0])
+    return np.array([0.0, -1.0, 0.0])
+
+
 def build_camera(model, cam_centers=None, cam_ups=None, vertical=True,
                  margin=0.03, seed=0) -> OrthoCam:
     rng = np.random.default_rng(seed)
@@ -327,7 +360,7 @@ def build_camera(model, cam_centers=None, cam_ups=None, vertical=True,
     if cam_ups is not None and len(cam_ups):
         up_ref = _unit(cam_ups.mean(0))
     else:
-        up_ref = np.array([0.0, 0.0, 1.0])
+        up_ref = guess_up_without_cams(model, alpha, rng)
     n, p0, inl, _ = fit_facade_plane(model["xyz"], alpha, model["scale"], up_ref,
                                      cam_centers, rng, vertical=vertical)
     up = up_ref - (up_ref @ n) * n

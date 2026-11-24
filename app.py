@@ -571,7 +571,7 @@ class App(tk.Tk):
                    command=self._render_linked).pack(side="left", padx=4)
         ttk.Button(bar2, text="↔ Voltear vista", command=lambda: self._adjust(flip=True)).pack(side="left")
         ttk.Button(bar2, text="⟳ Girar 90°", command=lambda: self._adjust(rot=1)).pack(side="left", padx=4)
-        ttk.Button(bar2, text="🧊 Visor 6 caras", command=self._open_cube_viewer).pack(side="left")
+        ttk.Button(bar2, text="🎯 Alinear / visor", command=self._open_cube_viewer).pack(side="left")
         self.link_lbl = ttk.Label(right, text="", foreground="#555")
         self.link_lbl.pack(anchor="w", pady=(4, 0))
         nm_row = ttk.Frame(right)
@@ -918,6 +918,12 @@ class App(tk.Tk):
         ply, entry = self._ply_for(name, d)
         if not ply or not os.path.isfile(ply):
             messagebox.showinfo("Visor 6 caras", "No encuentro el .ply de esta imagen.")
+            return
+        conf = entry.get("cubo") or {}
+        tipo = conf.get("tipo") or self.cfg.get("modo_render", "normal")
+        if not entry.get("ambiente") and tipo not in ("exterior", "interior"):
+            # puerta / ventana: una sola fachada, no un cubo de 6 caras
+            DoorViewer(self, name, ply, d)
             return
         if entry.get("ambiente"):     # recorte de un ambiente por partes: se ajusta el ambiente entero
             man = pl.read_manifest(d)
@@ -2344,7 +2350,7 @@ class AmbienteViewer(tk.Toplevel):
         self.ajustes = {k: v for k, v in self.ajustes.items() if v}
         self.names = [n for _p, n, _r in parts]
         self.roles = {n: r for _p, n, r in parts}
-        self.rots = {n: int(man.get(n, {}).get("rot", 0)) % 360 for n in self.names}
+        self.rots = {n: (int(man.get(n, {}).get("rot", 0)) % 4) * 90 for n in self.names}
         self.sel = sel if sel in self.names else self.names[0]
         self.st = self.pm = None
         self._busy = self._dirty = self._sliding = False
@@ -2552,9 +2558,10 @@ class AmbienteViewer(tk.Toplevel):
 
     def _select(self, n):
         self.sel = n
-        rol = {"pared": "pared", "suelo": "planta / piso", "techo": "techo"}[self.roles[n]]
+        rol = {"pared": "pared", "suelo": "planta / piso", "techo": "techo"}.get(self.roles[n])
         self.sel_lbl.config(text=n)
-        self.face_title.config(text=f"{n}  ({rol}, vista desde dentro del ambiente)")
+        self.face_title.config(text=f"{n}  ({rol}, vista desde dentro del ambiente)" if rol else
+                               f"{n}  (puerta / ventana, vista de frente)")
         adj = self.ajustes.get(n, {})
         for key, (v, lab, unit) in self.sv.items():
             val = float(adj.get(key, 0))
@@ -2636,6 +2643,86 @@ class AmbienteViewer(tk.Toplevel):
         self.app.q.put(("log", f"Ambiente {self.key}: {msg}"))
         self.app._thumbs.clear()
         self.app._show_current()
+
+
+class DoorViewer(AmbienteViewer):
+    """Alinear UNA puerta o ventana: se ve en grande y en vivo; girar, inclinar, enderezar, mover
+    el plano y encuadre. Al guardar, el ajuste queda para los próximos renders."""
+
+    SLIDERS = CubeViewer.SLIDERS + (("dx", "Desplazar ↔", -50, 50, "%"),
+                                     ("dy", "Desplazar ↕", -50, 50, "%"))
+
+    def __init__(self, app, name, ply, results_dir):
+        self._door_name = name
+        super().__init__(app, name, [(ply, name, "fachada")], results_dir, sel=name)
+        self.title(f"Alinear puerta / ventana — {name}")
+
+    def _build(self):
+        super()._build()
+        for cell, _img in self.cells.values():     # una sola vista: sin miniaturas
+            cell.pack_forget()
+        self.status.config(text="Preparando la vista (plano, lado y enderezado)…")
+
+        def walk(w):
+            for c in w.winfo_children():
+                if isinstance(c, ttk.Label):
+                    t = str(c.cget("text"))
+                    if t.startswith("Ambiente «"):
+                        c.config(text=f"Puerta / ventana «{self._door_name}»")
+                    elif t.startswith("Ajusta solo esta parte"):
+                        c.config(text="Alinea la puerta/ventana: la vista se actualiza en vivo. "
+                                      "Doble clic en un control lo vuelve a 0.")
+                walk(c)
+        walk(self)
+
+    def _load(self):
+        import cubo
+        try:
+            cfg = self.app.cfg
+            p_, n, _r = self.parts[0]
+            cams, ups, _o = pl.find_cams(n, p_, cfg, self.app.root_var.get() or None,
+                                         self.app._cam_store())
+            self.st = cubo.door_cams(self.parts, cfg.get("render_recorte_frontal") or 0.12,
+                                     cfg.get("render_margen", 0.05), cams, ups)
+            self.pm = {k: cubo.preview_model(m, 300_000) for k, m in self.st["models"].items()}
+        except Exception as e:
+            err = f"Error: {e}"
+            self.after(0, lambda: self.status.config(text=err))
+            return
+        self.after(0, self._loaded)
+
+    def _thumbs(self):
+        pass
+
+    def _render_final(self):
+        import cubo
+        n = self._door_name
+        man = pl.read_manifest(self.results)
+        e = man.get(n) or {"ply": self.parts[0][0], "flip": False, "rot": 0}
+        e.pop("ambiente", None)
+        e["vertical"] = 2
+        if self.ajustes.get(n):
+            e["ajuste"] = self.ajustes[n]
+        else:
+            e.pop("ajuste", None)
+        man[n] = e
+        pl.write_manifest(self.results, man)
+        self.btn_go.state(["disabled"])
+        cfg = self.app.cfg
+        rot = int(e.get("rot", 0))
+
+        def work():
+            try:
+                cubo.render_ambiente(self.parts, self.results, long_side=int(cfg["render_lado_largo_px"]),
+                                     background=tuple(cfg.get("render_fondo_color", (0, 0, 0))),
+                                     rots={n: rot}, ajustes=self.ajustes, setup=self.st,
+                                     log=lambda *_: None)
+                msg = "✓ Listo: ortofoto guardada"
+            except Exception as ex:
+                msg = f"Error: {ex}"
+            self.after(0, lambda: self._final_done(msg))
+        self.status.config(text="Renderizando en calidad final…")
+        threading.Thread(target=work, daemon=True).start()
 
 
 def main():

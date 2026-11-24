@@ -264,7 +264,12 @@ def adjust_cam(cam, adj):
     k = 1.0 + amp
     c = OrthoCam(cam.origin + normal * mv, _unit(right), _unit(up), _unit(normal),
                  (cam.u_range[0] * k, cam.u_range[1] * k), (cam.v_range[0] * k, cam.v_range[1] * k))
-    return rotate_camera(c, r) if r else c
+    c = rotate_camera(c, r) if r else c
+    dx, dy = float(adj.get("dx", 0)), float(adj.get("dy", 0))   # desplazar el encuadre
+    if dx or dy:
+        c = OrthoCam(c.origin, c.right, c.up, c.normal,
+                     (c.u_range[0] + dx, c.u_range[1] + dx), (c.v_range[0] + dy, c.v_range[1] + dy))
+    return c
 
 
 def face_cams(an, tipo, norte=0, margin=0.03, ajustes=None):
@@ -909,7 +914,22 @@ def ui_to_adj(ui, cam):
     d = dict(ui)
     d["mover"] = float(d.get("mover", 0)) / 100.0 * ext
     d["ampliar"] = float(d.get("ampliar", 0)) / 100.0
+    d["dx"] = float(d.get("dx", 0)) / 100.0 * ext
+    d["dy"] = float(d.get("dy", 0)) / 100.0 * ext
     return d
+
+
+def door_cams(parts, front_clip=0.12, margin=0.05, cams=None, ups=None, read=None):
+    """Puerta/ventana (una sola fachada) con la misma forma que ambiente_cams, para usar el
+    mismo visor y los mismos ajustes (girar, inclinar, enderezar, mover, encuadre)."""
+    import render_ortho as ro
+    read = read or ro.read_splat_ply
+    p, n, _r = parts[0]
+    m = read(p)
+    fc = front_clip or 0.12
+    cam = ro.door_camera(m, cams, ups, front_clip=fc, margin=margin, log=lambda *_: None)
+    ext = max(cam.u_range[1] - cam.u_range[0], cam.v_range[1] - cam.v_range[0])
+    return {"models": {n: m}, "cams": {n: (cam, fc * ext)}, "roles": {n: "fachada"}, "malos": []}
 
 
 def render_ambiente(parts, out_dir, long_side=4000, background=(0, 0, 0), margin=0.04,

@@ -770,6 +770,22 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
             t = time.time()
             wd = work_dir(cfg, root, name) if root else None
             conf = prev.get("cubo")     # None = lo lee de la carpeta de trabajo (si existe)
+            if prev.get("ajuste") and not conf and not prev.get("ambiente"):
+                # puerta/ventana alineada a mano en el visor: se respeta ese ajuste
+                import cubo
+                st = cubo.door_cams([(ply, name, "fachada")], cfg["render_recorte_frontal"] or 0.12,
+                                    cfg["render_margen"], cams, ups)
+                inf = cubo.render_ambiente([(ply, name, "fachada")], out_dir,
+                                           long_side=int(cfg["render_lado_largo_px"]),
+                                           background=tuple(cfg.get("render_fondo_color", (0, 0, 0))),
+                                           rots={name: rot}, ajustes={name: prev["ajuste"]}, setup=st,
+                                           log=lambda *_: None)[name]
+                with lock:
+                    man[name] = dict(prev, ply=ply, vertical=2)
+                    write_manifest(out_dir, man)
+                on_item(name, "listo", f"{inf['size'][0]}x{inf['size'][1]} px, "
+                                       f"{time.time() - t:.0f} s, alineada a mano")
+                return
             info = render_auto(ply, out_png, name, cfg, wd=wd if (wd and os.path.isdir(wd)) else None,
                                cams=cams, ups=ups, conf=conf, flip=flip, rot90=rot)
             with lock:

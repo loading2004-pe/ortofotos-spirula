@@ -679,6 +679,57 @@ def pick_visible_side(model, cam, front_clip=None, has_cams=False, log=print):
     return cam, b / max(a, 1e-6)
 
 
+def frame_to_content(model, cam, front_clip=None, margin=0.05, side=900):
+    """Encuadre centrado en lo que realmente hay (la puerta/ventana), con el mismo margen a los
+    cuatro lados. Se ignoran los bordes ralos (motas sueltas, restos del recorte)."""
+    try:
+        # solo lo que está EN el plano de la puerta (ni lo de delante ni lo de detrás)
+        d = (model["xyz"] - cam.origin) @ cam.normal
+        ext = max(cam.u_range[1] - cam.u_range[0], cam.v_range[1] - cam.v_range[0])
+        near = np.abs(d) < 0.06 * ext
+        sub = {k: (v[near] if isinstance(v, np.ndarray) and len(v) == len(near) else v)
+               for k, v in model.items()}
+        if near.sum() < 1000:
+            sub = model
+        _img, T = render(sub, cam, side, front_clip, return_raw=True)
+    except Exception:
+        return cam
+    a = 1.0 - np.asarray(T, np.float32)
+    H, W = a.shape
+    solid = a > 0.6
+    if solid.sum() < 0.01 * H * W:
+        return cam
+    oc, orr = solid.mean(0), solid.mean(1)          # ocupación por columna / fila
+
+    def span(occ):
+        ref = float(np.percentile(occ[occ > 0], 90)) if (occ > 0).any() else 0.0
+        keep = np.nonzero(occ >= 0.25 * ref)[0]
+        return (int(keep[0]), int(keep[-1]) + 1) if len(keep) else (0, len(occ))
+    x0, x1 = span(oc)
+    y0, y1 = span(orr)
+    (u0, u1), (v0, v1) = cam.u_range, cam.v_range
+    pu, pv = (u1 - u0) / W, (v1 - v0) / H
+    nu0, nu1 = u0 + x0 * pu, u0 + x1 * pu
+    nv1, nv0 = v1 - y0 * pv, v1 - y1 * pv           # la fila 0 es arriba
+    pad = margin * max(nu1 - nu0, nv1 - nv0)
+    return OrthoCam(cam.origin, cam.right, cam.up, cam.normal,
+                    (nu0 - pad, nu1 + pad), (nv0 - pad, nv1 + pad))
+
+
+def door_camera(model, cams=None, ups=None, front_clip=0.12, vertical=True, margin=0.05,
+                straighten=True, log=print):
+    """Cámara de puerta/ventana: plano de la fachada, lado filmado, enderezada y centrada."""
+    cam = build_camera(model, cams, ups, vertical=vertical, margin=margin)
+    cam, _r = pick_visible_side(model, cam, front_clip, cams is not None, log)
+    if straighten:
+        for _ in range(3):
+            a = straighten_angle(render(model, cam, 1200, front_clip))
+            if a == 0.0:
+                break
+            cam = rotate_camera(cam, a)
+    return frame_to_content(model, cam, front_clip, margin)
+
+
 def render_run(ply_path, out_path, workspace=None, run_dir=None, long_side=4000,
                front_clip=0.35, vertical=True, auto_straighten=True,
                transparent=False, margin=0.03, background=(0, 0, 0), log=print,
@@ -710,6 +761,7 @@ def render_run(ply_path, out_path, workspace=None, run_dir=None, long_side=4000,
                 break
             total += a
             cam = rotate_camera(cam, a)
+    cam = frame_to_content(model, cam, front_clip, margin)     # centrado, margen parejo
     img = render(model, cam, long_side, front_clip, background=background,
                  transparent=transparent)
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)

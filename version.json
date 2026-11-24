@@ -1,16 +1,16 @@
 {
- "version": "2026.11.24.3",
- "fecha": "2026-11-24 16:39",
- "notas": "Puertas/ventanas SIN cámaras (.ply limpiados o traídos de otra PC): ahora se detecta bien qué es «arriba» (vertical -Y o -Z según el modelo). Antes se suponía Z y salían mirando al piso, en diagonal o de cabeza. Los giros hechos a mano para corregir eso se reinician al volver a renderizar.",
+ "version": "2026.11.24.4",
+ "fecha": "2026-11-24 16:54",
+ "notas": "Puertas/ventanas: encuadre CENTRADO en la puerta con el mismo margen a los 4 lados (ignora restos del recorte). Nuevo botón «🎯 Alinear / visor»: para puertas y ventanas abre un visor de UNA fachada (no el de 6 caras) con girar, inclinar, enderezar, mover, encuadre y desplazar ↔ ↕, en vivo; el ajuste se guarda y se respeta en los próximos renders.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "55a32be15b6e66257c07981f8b102ba9c71c6c2cb16064d447b2ba2926e17096",
-  "pipeline.py": "742aebfd24cfc9b33c81ff7ab3ac7b2193b9535ad804fefd228700efa26173ed",
-  "render_ortho.py": "ea990550e997b82dde45c68bcca73860c25bbc4200f916f2affcd2744ddeee75",
+  "app.py": "4659371f59b39e5ebef255ce3f9a65f2b948a2efd4c3e1827b2a9eab7e214ba6",
+  "pipeline.py": "ae8f09dfa2d4c8cbaee0ec0f4ef09201020ba042599c327f346295216e543500",
+  "render_ortho.py": "a829838a79470a326bba30ee702a87ee06f96a5803877e59196cc6fc167733d7",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "b94e92be1e8b7029bb0d0b58e6c44165f7d58c810b2348d178764bbbc9e03c20",
-  "cubo.py": "bec5ff533dc9d8755d04b0f3fc82b9673b08e9d36ab3bcc66dc7b14031d98784"
+  "app_version.py": "7ad7ffb0dce81ea43610caf99cc2daaffc3b15e34befdef9ac1322e19f5c21f3",
+  "cubo.py": "d59f820fb3dae8fdce0472cc97fcfe5d550c5a32affe4ed55b29ed03535f2a59"
  }
 }

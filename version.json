@@ -1,16 +1,16 @@
 {
- "version": "2026.11.24.1",
- "fecha": "2026-11-24 11:53",
- "notas": "Paso 1: si el SfM falla (p. ej. «código 3»), se reintenta solo con la GPU libre, sin perder la calidad. Los errores ahora muestran en la app el motivo que dio Spirula, no solo el código.",
+ "version": "2026.11.24.2",
+ "fecha": "2026-11-24 11:56",
+ "notas": "Paso 1: el «código 3» de Spirula en SfM es un resultado PARCIAL (el modelo sí se creó), no un error. Ahora se continúa con el modelo y se muestra un aviso con el % de imágenes registradas. Los trabajos que quedaron en error por esto reutilizan su SfM sin recalcularlo.",
  "min_lanzador": 1,
  "archivos": {
   "app.py": "55a32be15b6e66257c07981f8b102ba9c71c6c2cb16064d447b2ba2926e17096",
-  "pipeline.py": "5152fce4b1f3a0e3f9426f9b34d9a65f8879b64b8e325c37ebbd1a0a62fd4ed7",
+  "pipeline.py": "496bdb47eb50221ba9e8d9e0821540666a2bef1a323d2541cbec2d4e0ed0ca5a",
   "render_ortho.py": "d96734ab84e52c971210651b303fbcbfd3bd4449eeecf1426c68153df5410616",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "fb8ed8c9119bbede63880c219dd0c827e4a9fe381ac0d9442fc5472e16a6f507",
+  "app_version.py": "08ac7f9ca09e75ea7c273d5044124b122c6658dcc19649cd08221f81e561bd4d",
   "cubo.py": "bec5ff533dc9d8755d04b0f3fc82b9673b08e9d36ab3bcc66dc7b14031d98784"
  }
 }

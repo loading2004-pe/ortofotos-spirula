@@ -88,6 +88,8 @@ class Job:
     detail: str = ""
     result: str = ""
     times: dict = field(default_factory=dict)
+    aviso: str = ""
+    last_tail: list = field(default_factory=list, repr=False)
 
 
 @dataclass
@@ -167,6 +169,19 @@ def _why(tail):
     return tail[-1][:220] if tail else ""
 
 
+def _sfm_partial_done(logf, ds):
+    """El último SfM del log terminó PARCIAL (código 3) y dejó cámaras en sparse/."""
+    if not glob.glob(os.path.join(ds, "sparse", "*", "images.*")):
+        return False
+    try:
+        with open(logf, encoding="utf-8", errors="replace") as f:
+            txt = f.read()
+    except OSError:
+        return False
+    i = txt.rfind(" sfm auto ")
+    return i >= 0 and "RESULTADO: parcial" in txt[i:] and "sfm terminó con código 3" in txt[i:]
+
+
 class Runner:
     def __init__(self, cfg, roots, on_update=None, log=None):
         self.cfg = cfg
@@ -187,7 +202,7 @@ class Runner:
         self._log(time.strftime("%H:%M:%S ") + msg)
 
     # -- utilidades ---------------------------------------------------------
-    def _run(self, job, args, logfile):
+    def _run(self, job, args, logfile, ok_codes=(0,)):
         if self.cancel.is_set():
             raise Cancelled()
         with open(logfile, "a", encoding="utf-8", errors="replace") as lf:
@@ -220,7 +235,8 @@ class Runner:
                     self.procs.discard(p)
         if self.cancel.is_set():
             raise Cancelled()
-        if rc != 0:
+        job.last_tail = tail
+        if rc not in ok_codes:
             why = _why(tail)
             raise RuntimeError(f"{os.path.basename(args[0])} {args[1]} terminó con código {rc}"
                                + (f": {why}" if why else "") + f" (ver {logfile})")
@@ -292,6 +308,11 @@ class Runner:
                     job.times["extraer"] = time.time() - t
                     mark("extraer")
             # 2) poses (crear conjunto de datos)
+            if not solo_render and not done("sfm") and _sfm_partial_done(logf, ds):
+                # versiones anteriores marcaban como error el SfM parcial (código 3) aunque el
+                # modelo ya estaba escrito: se aprovecha sin volver a calcularlo
+                self.log(f"{job.name}: se reutiliza el SfM parcial ya calculado")
+                mark("sfm")
             if not solo_render and not done("sfm"):
                 self._set(job, "en cola: sfm")
                 with self.sem["sfm"]:
@@ -302,8 +323,10 @@ class Runner:
                         shutil.rmtree(os.path.join(ds, d), ignore_errors=True)
                     args = [exe, "sfm", "auto", ds, "-o", ds,
                             "--quality", cfg["calidad_sfm"]] + cfg["args_extra_sfm"].split()
+                    # código 3 = SfM PARCIAL: Spirula escribió el modelo pero no registró todas las
+                    # imágenes ("El modelo sirve"). No es un error: se sigue con lo registrado.
                     try:
-                        self._run(job, args, logf)
+                        self._run(job, args, logf, ok_codes=(0, 3))
                     except RuntimeError as e:
                         if self.cancel.is_set():
                             raise
@@ -316,7 +339,14 @@ class Runner:
                             for d in ("sparse", "features"):
                                 shutil.rmtree(os.path.join(ds, d), ignore_errors=True)
                             self._set(job, "calculando poses (SfM, 2.º intento)")
-                            self._run(job, args, logf)
+                            self._run(job, args, logf, ok_codes=(0, 3))
+                    res = next((l for l in reversed(getattr(job, "last_tail", []))
+                                if "RESULTADO" in l), "")
+                    m = re.search(r"(\d+)% de las im", res)
+                    if m and "parcial" in res:
+                        job.aviso = (f"SfM parcial: {m.group(1)}% de las imágenes registradas "
+                                     f"(el modelo puede no cubrir toda la puerta/ventana)")
+                        self.log(f"AVISO {job.name}: {job.aviso}")
                     if not glob.glob(os.path.join(ds, "sparse", "*", "images.*")):
                         raise RuntimeError("SfM no generó cámaras (sparse/0)")
                     job.times["sfm"] = time.time() - t

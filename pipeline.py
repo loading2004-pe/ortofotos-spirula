@@ -154,6 +154,19 @@ class Cancelled(Exception):
     pass
 
 
+_ERR_WORDS = ("error", "fail", "exception", "panic", "abort", "not enough", "insufficient",
+              "out of memory", "oom", "cuda", "vulkan", "no se", "could not", "unable", "invalid")
+
+
+def _why(tail):
+    """La línea que explica un fallo de Spirula (para mostrarla en la app, no solo en el log)."""
+    for line in reversed(tail):
+        low = line.lower()
+        if any(w in low for w in _ERR_WORDS):
+            return line[:220]
+    return tail[-1][:220] if tail else ""
+
+
 class Runner:
     def __init__(self, cfg, roots, on_update=None, log=None):
         self.cfg = cfg
@@ -186,11 +199,15 @@ class Runner:
                                  errors="replace", bufsize=1)
             with self.lock:
                 self.procs.add(p)
+            tail = []
             try:
                 last = ""
                 for line in p.stdout:
                     lf.write(line)
                     line = line.strip()
+                    if line:
+                        tail.append(line)
+                        del tail[:-60]
                     if line and line != last:
                         last = line
                         job.detail = line[:150]
@@ -204,8 +221,9 @@ class Runner:
         if self.cancel.is_set():
             raise Cancelled()
         if rc != 0:
-            raise RuntimeError(f"{os.path.basename(args[0])} {args[1]} terminó con código {rc} "
-                               f"(ver {logfile})")
+            why = _why(tail)
+            raise RuntimeError(f"{os.path.basename(args[0])} {args[1]} terminó con código {rc}"
+                               + (f": {why}" if why else "") + f" (ver {logfile})")
 
     def stop_after_current(self):
         """Deja terminar las etapas en marcha (p. ej. un entrenamiento) y no empieza otras."""
@@ -284,7 +302,21 @@ class Runner:
                         shutil.rmtree(os.path.join(ds, d), ignore_errors=True)
                     args = [exe, "sfm", "auto", ds, "-o", ds,
                             "--quality", cfg["calidad_sfm"]] + cfg["args_extra_sfm"].split()
-                    self._run(job, args, logf)
+                    try:
+                        self._run(job, args, logf)
+                    except RuntimeError as e:
+                        if self.cancel.is_set():
+                            raise
+                        # Suele fallar por falta de memoria de la GPU cuando corre a la vez que
+                        # otro SfM o un entrenamiento: se repite solo, con la GPU libre.
+                        self.log(f"{job.name}: SfM falló ({e}); se reintenta con la GPU libre")
+                        self._set(job, "reintentando SfM (esperando GPU libre)")
+                        with self.sem["entrenar"]:
+                            self._gate(job)
+                            for d in ("sparse", "features"):
+                                shutil.rmtree(os.path.join(ds, d), ignore_errors=True)
+                            self._set(job, "calculando poses (SfM, 2.º intento)")
+                            self._run(job, args, logf)
                     if not glob.glob(os.path.join(ds, "sparse", "*", "images.*")):
                         raise RuntimeError("SfM no generó cámaras (sparse/0)")
                     job.times["sfm"] = time.time() - t

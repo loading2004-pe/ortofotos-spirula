@@ -590,6 +590,14 @@ class App(tk.Tk):
             self.bind(seq, lambda e, fn=fn: fn() if self.nb.select() == str(self.review_tab) else None)
         self.files, self._img_cache = [], None
         self.review_dir = None          # None = resultados de "1. Procesar"
+        last = self.cfg.get("ultima_revision") or ""
+        try:                            # al abrir, 'Revisar' vuelve a la última carpeta revisada
+            if last and os.path.isdir(last) and any(f.lower().endswith(".png") for f in os.listdir(last)) \
+                    and os.path.normcase(os.path.abspath(last)) != \
+                    os.path.normcase(os.path.abspath(self._process_results_dir())):
+                self.review_dir = last
+        except (OSError, KeyError):
+            pass
         self._linked_busy = False
         self._review_cleared = False
         self._thumbs = {}          # ruta -> (mtime, imagen reducida)

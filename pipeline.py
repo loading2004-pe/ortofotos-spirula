@@ -225,6 +225,9 @@ def sync_png_folders(d, cfg, log=None):
     return n
 
 
+_ALIKED_LOCK = threading.Lock()
+
+
 def _sfm_video_args(job, img, cfg):
     """Fotogramas de video: Spirula los une como SECUENCIA (vecinos en orden), mucho más
     robusto que tratarlos como fotos sueltas, sobre todo si se grabó de cerca."""
@@ -471,7 +474,8 @@ class Runner:
                                  f"se reintenta con el detector robusto (aliked)")
                         self._set(job, f"SfM parcial {m.group(1)}%: reintentando con detector robusto")
                         try:
-                            self._run(job, args + ["--features", "aliked-n16rot"], logf, ok_codes=(0, 3))
+                            with _ALIKED_LOCK:   # la 1.ª vez Spirula descarga el modelo: uno a la vez
+                                self._run(job, args + ["--features", "aliked-n16rot"], logf, ok_codes=(0, 3))
                             n2 = _sfm_registered(ds)
                         except RuntimeError as e:
                             if self.cancel.is_set():

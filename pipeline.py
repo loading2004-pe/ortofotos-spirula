@@ -908,10 +908,12 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
         on_item(name, "renderizando", "")
         try:
             cams, ups, origen = find_cams(name, ply, cfg, root, store)
-            if cams is None and prev and prev.get("vertical", 1) < 2:
-                # sin cámaras la vertical ahora se detecta bien (-Y / -Z); los giros que se
-                # hicieron a mano para corregir la detección antigua ya no hacen falta
+            if cams is None and prev and prev.get("vertical", 1) < 3 and not prev.get("ambiente") \
+                    and not prev.get("cubo"):
+                # sin cámaras la vertical (-Y / -Z) y el lado filmado ahora se detectan bien; los
+                # giros y ajustes hechos a mano para corregir la detección antigua ya no sirven
                 flip, rot = False, 0
+                prev = {k: v for k, v in prev.items() if k not in ("ajuste", "flip", "rot")}
             out_png = os.path.join(out_dir, name + ".png")
             for old in (out_png, os.path.join(out_dir, "x_" + name + ".png")):
                 if os.path.exists(old):
@@ -930,7 +932,7 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
                                            rots={name: rot}, ajustes={name: prev["ajuste"]}, setup=st,
                                            log=lambda *_: None)[name]
                 with lock:
-                    man[name] = dict(prev, ply=ply, vertical=2)
+                    man[name] = dict(prev, ply=ply, vertical=3)
                     write_manifest(out_dir, man)
                 on_item(name, "listo", f"{inf['size'][0]}x{inf['size'][1]} px, "
                                        f"{time.time() - t:.0f} s, alineada a mano")
@@ -938,7 +940,7 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
             info = render_auto(ply, out_png, name, cfg, wd=wd if (wd and os.path.isdir(wd)) else None,
                                cams=cams, ups=ups, conf=conf, flip=flip, rot90=rot)
             with lock:
-                man[name] = {"ply": ply, "flip": flip, "rot": rot, "vertical": 2}
+                man[name] = {"ply": ply, "flip": flip, "rot": rot, "vertical": 3}
                 if prev.get("cubo") is not None:
                     man[name]["cubo"] = prev["cubo"]
                 write_manifest(out_dir, man)

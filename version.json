@@ -1,16 +1,16 @@
 {
- "version": "2026.11.24.8",
- "fecha": "2026-11-24 21:35",
- "notas": "SfM: el detector robusto se descarga y usa de a uno (evita que falle si dos puertas lo piden a la vez).",
+ "version": "2026.11.25.1",
+ "fecha": "2026-11-25 09:04",
+ "notas": "Puertas/ventanas sin cámaras: el lado filmado ahora se elige comparando la nitidez de ambos lados (antes podía salir vista desde atrás, borrosa y «a través»). Probado en 12 puertas: 12 correctas. Los giros/ajustes manuales hechos para corregir eso se reinician al volver a renderizar.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "c6fcc84d6022191b51802e068d7e690b0e5a5f3294d563774d274c92060ca995",
-  "pipeline.py": "a91cb20b8658a2a861d3b426384adf47aae1db1586a6262360f3b925eb5fcd84",
-  "render_ortho.py": "a829838a79470a326bba30ee702a87ee06f96a5803877e59196cc6fc167733d7",
+  "app.py": "fc4d43351249e7280c6d371ff4a1bc00614356d9311ce94432596060bca2d42f",
+  "pipeline.py": "2469e7e0f26a7dfce09a1a839f72009dcf5afc179a9e8867c4f6e1c314ea6ec7",
+  "render_ortho.py": "a9604885cd9ab72a9c139b8f2a9fb478184c7761c8676d98daae3c71e2129606",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "8a7e1d1e50b0a9a82f5da7ff113c131f42cc9fd691345fdbbcd11c23ad1e6880",
+  "app_version.py": "631cfd436dbd0f207cfc51e2b7f502cdbf34733fe602081edb14e4cab77f7a1b",
   "cubo.py": "d59f820fb3dae8fdce0472cc97fcfe5d550c5a32affe4ed55b29ed03535f2a59"
  }
 }

@@ -2744,7 +2744,7 @@ class DoorViewer(AmbienteViewer):
         man = pl.read_manifest(self.results)
         e = man.get(n) or {"ply": self.parts[0][0], "flip": False, "rot": 0}
         e.pop("ambiente", None)
-        e["vertical"] = 2
+        e["vertical"] = 3
         if self.ajustes.get(n):
             e["ajuste"] = self.ajustes[n]
         else:

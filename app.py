@@ -229,6 +229,8 @@ class App(tk.Tk):
         ttk.Entry(top, textvariable=self.root_var).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(top, text="Elegir…", command=self._pick_root).pack(side="left")
         ttk.Button(top, text="Escanear", command=self.do_scan).pack(side="left", padx=4)
+        top = ttk.Frame(f)              # 2.ª fila: así todo se ve también en pantallas chicas
+        top.pack(fill="x", pady=(4, 0))
         self._modo_widget(top)
         self.btn_run = ttk.Button(top, text="▶ Procesar", command=self.do_run)
         self.btn_run.pack(side="left")
@@ -547,6 +549,8 @@ class App(tk.Tk):
                    command=self._review_default).pack(side="left", padx=4)
         ttk.Button(top, text="Abrir carpeta", command=lambda: open_path(self._results_dir())
                    if os.path.isdir(self._results_dir()) else None).pack(side="left")
+        top = ttk.Frame(right)          # 2.ª fila de opciones (visible también en pantallas chicas)
+        top.pack(fill="x", pady=(0, 4))
         self._modo_widget(top)
         ttk.Label(top, text="   Calidad del render:").pack(side="left")
         self.calidad_var = tk.StringVar(value=self._calidad_label(self.cfg["render_lado_largo_px"]))
@@ -695,7 +699,7 @@ class App(tk.Tk):
         self._review_cleared = False
         d = self._results_dir()
         self._sync_folders(d)
-        self.rev_dir_lbl.config(text=d)
+        self.rev_dir_lbl.config(text=d if len(d) <= 70 else "…" + d[-69:])   # rutas largas no empujan los botones
         lk = self.cfg.get("carpeta_ply_limpios", "")
         if lk and not self._linked_busy:
             self.link_lbl.config(text=f"Carpeta de .ply limpios vinculada: {lk}")
@@ -1527,8 +1531,23 @@ class App(tk.Tk):
 
     # --------------------------------------------------------- Configuración
     def _build_config(self, nb):
-        outer = ttk.Frame(nb, padding=8)
-        nb.add(outer, text="Configuración")
+        # con barra de desplazamiento: en pantallas chicas no se pierden opciones ni botones
+        holder = ttk.Frame(nb)
+        nb.add(holder, text="Configuración")
+        cv = tk.Canvas(holder, highlightthickness=0)
+        sb = ttk.Scrollbar(holder, orient="vertical", command=cv.yview)
+        cv.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        cv.pack(side="left", fill="both", expand=True)
+        outer = ttk.Frame(cv, padding=8)
+        win = cv.create_window((0, 0), window=outer, anchor="nw")
+        outer.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
+        cv.bind("<Configure>", lambda e: cv.itemconfigure(win, width=e.width))
+
+        def _wheel(e):
+            if self.nb.select() == str(holder):
+                cv.yview_scroll(int(-e.delta / 120) or (-1 if e.delta > 0 else 1), "units")
+        self.bind_all("<MouseWheel>", _wheel, add="+")
         self.vars = {}
         ttk.Label(outer, text="Perfil de calidad", font=("Segoe UI", 10, "bold")).grid(
             row=0, column=0, sticky="w", pady=(0, 8))

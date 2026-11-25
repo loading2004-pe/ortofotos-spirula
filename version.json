@@ -1,16 +1,16 @@
 {
- "version": "2026.11.25.2",
- "fecha": "2026-11-25 09:30",
- "notas": "Control de calidad automático: en «2. Revisar» las ortofotos con riesgo salen con ⚠ y el motivo (SfM parcial, lado dudoso, zonas transparentes). Cada actualización se prueba antes con 12 puertas/ventanas y 3 ambientes reales ya validados; si algo empeora, no se publica.",
+ "version": "2026.11.25.3",
+ "fecha": "2026-11-25 15:00",
+ "notas": "Pantallas chicas (laptops): las barras de «1. Procesar» y «2. Revisar» van en dos filas para que se vean todas las opciones, y «Configuración» tiene barra de desplazamiento (antes las opciones nuevas podían quedar fuera de la pantalla).",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "6a4a52c100ea4522bd32c7aadf33018c2983605650af8ef5b9ec19b60f1b6f50",
+  "app.py": "ada304550392380cef25d9c6059318e217e79c146e093eae381313c723c631f4",
   "pipeline.py": "61f3b493a2e379d37a90c566247bf4be8b47a974557d92eb4bfefb76c5fbc003",
   "render_ortho.py": "7e16abed098021d34b8c37b1c46e50a013db9632616fd295b734d35361421cc8",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "280ba3723ed33d1754d5e169c9b3b057b80dc7b6e673505f69682ed1fed5cf05",
+  "app_version.py": "39389a1835a39c819a67d4d9d4a2f0fe33b96c92436f04a9474b5f4bcff01e20",
   "cubo.py": "d59f820fb3dae8fdce0472cc97fcfe5d550c5a32affe4ed55b29ed03535f2a59"
  }
 }

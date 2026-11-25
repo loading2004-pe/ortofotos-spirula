@@ -675,12 +675,15 @@ def pick_visible_side(model, cam, front_clip=None, has_cams=False, log=print):
         # sin cámaras (.ply limpiado): visto desde atrás la puerta sale "a través" (borrosa,
         # fantasma). Se dibujan los dos lados y gana el más nítido si la diferencia es clara.
         sa, sb = _side_sharpness(model, cam, front_clip), _side_sharpness(model, other, front_clip)
-        if max(sa, sb) >= 1.3 * max(min(sa, sb), 1e-9):
-            return (cam, sa / max(sb, 1e-9)) if sa >= sb else (other, sb / max(sa, 1e-9))
+        r = max(sa, sb) / max(min(sa, sb), 1e-9)
+        if r >= 1.3:
+            return (cam, r) if sa >= sb else (other, r)
+        a = _front_haze(model, cam)
+        b = _front_haze(model, other)
+        return (other, r) if b < a else (cam, r)     # r < 1.3: lado dudoso (se avisa)
     a = _front_haze(model, cam)
     b = _front_haze(model, other)
-    factor = 4.0 if has_cams else 1.0
-    if b * factor < a:
+    if b * 4.0 < a:
         return other, a / max(b, 1e-6)
     return cam, b / max(a, 1e-6)
 
@@ -788,4 +791,22 @@ def render_run(ply_path, out_path, workspace=None, run_dir=None, long_side=4000,
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     img.save(out_path, compress_level=3)
     return {"splats": len(model["xyz"]), "size": img.size, "roll_fix_deg": total,
-            "con_camaras": cams is not None, "nitidez_lado": side_ratio}
+            "con_camaras": cams is not None, "nitidez_lado": side_ratio,
+            "lado_dudoso": bool(auto_side and cams is None and side_ratio is not None
+                                and side_ratio < 1.3 and not flip),
+            "transparencia": transparency(model, cam, front_clip)}
+
+
+def transparency(model, cam, front_clip=None, side=500):
+    """Parte de la puerta/ventana que quedó semitransparente (zonas poco grabadas,
+    contraluz, nubes): 0 = todo sólido. Se mide en el centro (sin los bordes del recorte)."""
+    try:
+        _img, T = render(model, cam, side, front_clip, return_raw=True)
+    except Exception:
+        return None
+    a = 1.0 - np.asarray(T, np.float32)
+    H, W = a.shape
+    c = a[int(H * 0.12):int(H * 0.88), int(W * 0.12):int(W * 0.88)]
+    if c.size == 0:
+        return None
+    return float(((c > 0.03) & (c < 0.7)).mean())

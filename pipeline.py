@@ -171,6 +171,49 @@ def _why(tail):
     return tail[-1][:220] if tail else ""
 
 
+def quality_warnings(info=None, sfm_pct=None):
+    """Avisos de calidad de una ortofoto, para verlos en «2. Revisar» apenas sale."""
+    w = []
+    if sfm_pct is not None and sfm_pct < 70:
+        w.append(f"SfM parcial: solo {sfm_pct}% de las imágenes se unieron; puede tener zonas mal "
+                 f"formadas (conviene regrabar más de lejos, despacio y con luz)")
+    if info:
+        if info.get("lado_dudoso"):
+            w.append("Lado dudoso: los dos lados se ven parecidos; revisa que no salga vista desde "
+                     "atrás (si es así: «Voltear vista»)")
+        t = info.get("transparencia")
+        if t is not None and t > 0.25:
+            w.append(f"Zonas transparentes/borrosas ({t * 100:.0f}% de la puerta): parte poco "
+                     f"grabada o a contraluz")
+    return w
+
+
+def set_warnings(d, name, warnings):
+    pth = os.path.join(d, ".avisos.json")
+    try:
+        with open(pth, encoding="utf-8") as f:
+            av = json.load(f)
+    except (OSError, ValueError):
+        av = {}
+    if warnings:
+        av[name] = warnings
+    else:
+        av.pop(name, None)
+    try:
+        with open(pth, "w", encoding="utf-8") as f:
+            json.dump(av, f, ensure_ascii=False, indent=1)
+    except OSError:
+        pass
+
+
+def read_warnings(d):
+    try:
+        with open(os.path.join(d, ".avisos.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
 def sync_png_folders(d, cfg, log=None):
     """Cada PNG de la carpeta queda también dentro de su propia carpeta «<prefijo><nombre>»
     (p. ej. 4.b12-p3-a/b12-p3-a.png). Es un enlace al mismo archivo (no ocupa espacio extra);
@@ -555,6 +598,10 @@ class Runner:
                                    workspace=ds if os.path.isdir(ds) else None,
                                    run_dir=os.path.join(runs, "modelo"))
                 job.times["render"] = time.time() - t
+                warns = quality_warnings(info, sfm_partial_pct(logf))
+                set_warnings(self.results, job.name, warns)
+                for w_ in warns:
+                    self.log(f"⚠ {job.name}: {w_}")
             job.result = out_png
             sync_png_folders(self.results, cfg, self.log)
             tt = sum(job.times.values())
@@ -939,16 +986,19 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
                 return
             info = render_auto(ply, out_png, name, cfg, wd=wd if (wd and os.path.isdir(wd)) else None,
                                cams=cams, ups=ups, conf=conf, flip=flip, rot90=rot)
+            warns = quality_warnings(info, sfm_partial_pct(os.path.join(wd, "log.txt")) if wd else None)
             with lock:
                 man[name] = {"ply": ply, "flip": flip, "rot": rot, "vertical": 3}
                 if prev.get("cubo") is not None:
                     man[name]["cubo"] = prev["cubo"]
                 write_manifest(out_dir, man)
+                set_warnings(out_dir, name, warns)
             nota = "con cámaras" if cams is not None else "lado detectado automáticamente"
             if info.get("modo") and info["modo"] != "fachada":
                 nota = info["modo"]
             on_item(name, "listo", f"{info['size'][0]}x{info['size'][1]} px, "
-                                   f"{time.time() - t:.0f} s, {nota}")
+                                   f"{time.time() - t:.0f} s, {nota}"
+                                   + "".join(f"  ⚠ {w_}" for w_ in warns))
         except Exception as e:
             on_item(name, "error", str(e))
 

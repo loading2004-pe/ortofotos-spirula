@@ -723,18 +723,23 @@ class App(tk.Tk):
             _e, cdir = pl.side_dirs(self.cfg, self.root_var.get())
             if os.path.isdir(cdir):
                 limpios = {os.path.splitext(f)[0].lower() for f in os.listdir(cdir)}
+        self._avisos = pl.read_warnings(os.path.dirname(self.files[0])) if self.files else {}
+        nav = 0
         for p in self.files:
             n = os.path.basename(p)
             is_bad = n.lower().startswith("x_")
             bad += is_bad
             base = os.path.splitext(n[2:] if is_bad else n)[0].lower()
             tag = "   ◆ limpio" if base in limpios else ""
-            self.lst.insert("end", ("✗ " if is_bad else "  ") + n + tag)
-            self.lst.itemconfig("end", fg="#c62828" if is_bad else "black")
+            warn = bool(self._avisos.get(os.path.splitext(n[2:] if is_bad else n)[0]))
+            nav += warn
+            self.lst.insert("end", ("✗ " if is_bad else ("⚠ " if warn else "  ")) + n + tag)
+            self.lst.itemconfig("end", fg="#c62828" if is_bad else ("#b26a00" if warn else "black"))
         if keep is not None and self.files:
             self.lst.selection_set(keep)
             self.lst.see(keep)
-        self.rev_count.config(text=f"{len(self.files)} imágenes · {bad} marcadas mal")
+        self.rev_count.config(text=f"{len(self.files)} imágenes · {bad} marcadas mal"
+                                   + (f" · ⚠ {nav} con aviso" if nav else ""))
 
     def _cur(self):
         s = self.lst.curselection()
@@ -746,7 +751,11 @@ class App(tk.Tk):
         if i is None or i >= len(self.files):
             return
         p = self.files[i]
-        self.rev_name.config(text=os.path.basename(p))
+        n0 = os.path.splitext(os.path.basename(p))[0]
+        n0 = n0[2:] if n0.lower().startswith("x_") else n0
+        av = getattr(self, "_avisos", {}).get(n0) or []
+        self.rev_name.config(text=os.path.basename(p) + ("   ⚠ " + "  ·  ".join(av) if av else ""),
+                             foreground="#b26a00" if av else "black")
         self._update_faces_link(p)
         try:
             im = self._thumb(p).copy()

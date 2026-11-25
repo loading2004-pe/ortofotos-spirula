@@ -1,16 +1,17 @@
 {
- "version": "2026.11.25.3",
- "fecha": "2026-11-25 15:00",
- "notas": "Pantallas chicas (laptops): las barras de «1. Procesar» y «2. Revisar» van en dos filas para que se vean todas las opciones, y «Configuración» tiene barra de desplazamiento (antes las opciones nuevas podían quedar fuera de la pantalla).",
+ "version": "2026.11.25.4",
+ "fecha": "2026-11-25 15:05",
+ "notas": "Configuración del equipo: todas las PC usan la misma calidad (30000 pasos, resolución 1, SfM extreme, render 10000 px, margen 0.05, recorte 0.12, carpetas «4.»). Llega con la actualización; se puede desactivar en Configuración. Las rutas y trabajos simultáneos siguen siendo de cada PC.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "ada304550392380cef25d9c6059318e217e79c146e093eae381313c723c631f4",
-  "pipeline.py": "61f3b493a2e379d37a90c566247bf4be8b47a974557d92eb4bfefb76c5fbc003",
+  "app.py": "4aaf1e46e72c12b98624d6abaa0af49a9c8c86e076c115d696bedfdace702017",
+  "pipeline.py": "1525b8ef3eef3511d4e0e3247dcaa66681210606aed361aaa48164c871052cfe",
   "render_ortho.py": "7e16abed098021d34b8c37b1c46e50a013db9632616fd295b734d35361421cc8",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "39389a1835a39c819a67d4d9d4a2f0fe33b96c92436f04a9474b5f4bcff01e20",
-  "cubo.py": "d59f820fb3dae8fdce0472cc97fcfe5d550c5a32affe4ed55b29ed03535f2a59"
+  "app_version.py": "5225a82385905912fe0c339f364b074989a12784ed01685b2834d4ab96a70e22",
+  "cubo.py": "d59f820fb3dae8fdce0472cc97fcfe5d550c5a32affe4ed55b29ed03535f2a59",
+  "equipo.json": "f0682f5dbbdef3b3bc59f6db15b77adf04e8763484b7eac1d1be1bf89b81f0ff"
  }
 }

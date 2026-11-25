@@ -129,6 +129,7 @@ FIELDS = [  # (clave, etiqueta, tipo)
     ("render_fondo_transparente", "Render: fondo transparente", bool),
     ("render_margen", "Render: margen alrededor", float),
     ("carpeta_por_png", "Cada PNG en su carpeta «<prefijo><nombre>»", bool),
+    ("usar_config_equipo", "Usar la configuración del equipo (misma calidad en todas las PC)", bool),
     ("prefijo_carpeta_png", "Prefijo de esas carpetas (ej. 4.)", str),
     ("nombre_minusculas", "Nombres en minúsculas (p-34 cara a)", bool),
     ("min_videos", "Mínimo de videos por carpeta", int),

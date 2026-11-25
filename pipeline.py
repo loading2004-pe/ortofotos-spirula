@@ -52,7 +52,7 @@ DEFAULT_CONFIG = {
     "render_fondo_color": [0, 0, 0],
     "render_margen": 0.05,
     "nombre_minusculas": True,
-    "min_videos": 2,
+    "min_videos": 1,
     "min_fotos": 8,
     "render_detectar_cubo": True,   # (modo "auto") detectar interiores/exteriores de 6 caras
     "carpeta_por_png": True,         # cada PNG también dentro de su carpeta <prefijo><nombre>
@@ -61,14 +61,31 @@ DEFAULT_CONFIG = {
     "entrenar_cache_ram": True,     # --cache-images cpu si caben en RAM (no cambia el resultado)
     "url_actualizaciones": "",      # vacío = servidor por defecto
     "actualizar_auto": True,
+    "usar_config_equipo": True,     # aplicar la calidad del equipo (equipo.json) en esta PC
 }
+
+
+TEAM_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "equipo.json")
+
+
+def team_config():
+    """Configuración del equipo (llega con la actualización): la misma calidad en todas las PC."""
+    try:
+        with open(TEAM_FILE, encoding="utf-8") as f:
+            t = json.load(f)
+        return {k: v for k, v in t.items() if not k.startswith("_") and k in DEFAULT_CONFIG}
+    except (OSError, ValueError):
+        return {}
 
 
 def load_config(path: str) -> dict:
     cfg = dict(DEFAULT_CONFIG)
+    cfg.update(team_config())
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             cfg.update(json.load(f))
+    if cfg.get("usar_config_equipo", True):
+        cfg.update(team_config())        # calidad del equipo manda sobre la de esta PC
     return cfg
 
 

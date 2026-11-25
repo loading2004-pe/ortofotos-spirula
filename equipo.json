@@ -1,0 +1,23 @@
+{
+ "_nota": "Configuración del equipo: llega con cada actualización y se aplica en todas las PC (si 'usar_config_equipo' está activado). No incluye rutas ni cantidad de trabajos simultáneos, que dependen de cada PC.",
+ "pasos_entrenamiento": 30000,
+ "divisor_resolucion": 1,
+ "calidad_sfm": "extreme",
+ "fotogramas_por_segundo": 2.0,
+ "ventana_nitidez": 3,
+ "extraer_adaptativo": false,
+ "render_lado_largo_px": 10000,
+ "render_recorte_frontal": 0.12,
+ "render_plano_vertical": true,
+ "render_enderezar": true,
+ "render_fondo_transparente": false,
+ "render_fondo_color": [0, 0, 0],
+ "render_margen": 0.05,
+ "nombre_minusculas": true,
+ "min_videos": 1,
+ "min_fotos": 8,
+ "render_detectar_cubo": true,
+ "carpeta_por_png": true,
+ "prefijo_carpeta_png": "4.",
+ "entrenar_cache_ram": true
+}

@@ -1148,6 +1148,15 @@ class App(tk.Tk):
             return
         self.nb.select(0)
         override = {"_forzar_entrenar": True, "pasos_entrenamiento": pasos} if r else {}
+        if r:   # si su SfM salió parcial, también se rehacen las poses (modo video + detector robusto)
+            for n in names:
+                jd = pl.work_dir(self.cfg, self.root_var.get(), n)
+                pct = pl.sfm_partial_pct(os.path.join(jd, "log.txt"))
+                if pct is not None and pct < 70:
+                    try:
+                        open(os.path.join(jd, ".rehacer_sfm"), "w").close()
+                    except OSError:
+                        pass
         self.do_run(only=names, cfg_override=override)
 
     # ------------------------------------------- Convertir nube (CloudCompare / ReCap)

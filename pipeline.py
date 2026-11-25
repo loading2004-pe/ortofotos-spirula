@@ -225,6 +225,51 @@ def sync_png_folders(d, cfg, log=None):
     return n
 
 
+def _sfm_video_args(job, img, cfg):
+    """Fotogramas de video: Spirula los une como SECUENCIA (vecinos en orden), mucho más
+    robusto que tratarlos como fotos sueltas, sobre todo si se grabó de cerca."""
+    if not cfg.get("sfm_modo_video", True) or not getattr(job, "videos", None):
+        return []
+    try:
+        subs = sorted(d for d in os.listdir(img) if os.path.isdir(os.path.join(img, d)))
+    except OSError:
+        return []
+    if not subs:
+        return ["--data-type", "video"]
+    return ["--data-type", "video", "--sequence", ",".join(subs)]
+
+
+def _sfm_registered(ds):
+    """Imágenes del modelo principal (sparse/0) que escribió Spirula."""
+    best = 0
+    for d in glob.glob(os.path.join(ds, "sparse", "*")):
+        for name in ("images.txt",):
+            pth = os.path.join(d, name)
+            if os.path.isfile(pth):
+                with open(pth, encoding="utf-8", errors="replace") as f:
+                    lines = [l for l in f if l.strip() and not l.startswith("#")]
+                best = max(best, len(lines) // 2)
+        pth = os.path.join(d, "images.bin")
+        if os.path.isfile(pth):
+            import struct
+            with open(pth, "rb") as f:
+                best = max(best, struct.unpack("<Q", f.read(8))[0])
+    return best
+
+
+def sfm_partial_pct(logf):
+    """% de imágenes registradas del último SfM parcial del log (None si fue completo)."""
+    try:
+        with open(logf, encoding="utf-8", errors="replace") as f:
+            txt = f.read()
+    except OSError:
+        return None
+    m = None
+    for m in re.finditer(r"RESULTADO: (\w+) -- (\d+)%", txt):
+        pass
+    return int(m.group(2)) if m and m.group(1) == "parcial" else None
+
+
 def _sfm_partial_done(logf, ds):
     """El último SfM del log terminó PARCIAL (código 3) y dejó cámaras en sparse/."""
     if not glob.glob(os.path.join(ds, "sparse", "*", "images.*")):
@@ -364,7 +409,20 @@ class Runner:
                     job.times["extraer"] = time.time() - t
                     mark("extraer")
             # 2) poses (crear conjunto de datos)
-            if not solo_render and not done("sfm") and _sfm_partial_done(logf, ds):
+            redo = os.path.join(jdir, ".rehacer_sfm")
+            if os.path.exists(redo):
+                # pedido de rehacer las poses (p. ej. SfM parcial): se rehace SfM y entrenamiento
+                for st_ in ("sfm", "entrenar"):
+                    try:
+                        os.remove(os.path.join(jdir, f".ok_{st_}"))
+                    except OSError:
+                        pass
+                try:
+                    os.remove(redo)
+                except OSError:
+                    pass
+                self.log(f"{job.name}: se rehace el SfM (modo video + detector robusto si hace falta)")
+            elif not solo_render and not done("sfm") and _sfm_partial_done(logf, ds):
                 # versiones anteriores marcaban como error el SfM parcial (código 3) aunque el
                 # modelo ya estaba escrito: se aprovecha sin volver a calcularlo
                 self.log(f"{job.name}: se reutiliza el SfM parcial ya calculado")
@@ -378,7 +436,8 @@ class Runner:
                     for d in ("sparse", "features"):
                         shutil.rmtree(os.path.join(ds, d), ignore_errors=True)
                     args = [exe, "sfm", "auto", ds, "-o", ds,
-                            "--quality", cfg["calidad_sfm"]] + cfg["args_extra_sfm"].split()
+                            "--quality", cfg["calidad_sfm"]] + _sfm_video_args(job, img, cfg) \
+                        + cfg["args_extra_sfm"].split()
                     # código 3 = SfM PARCIAL: Spirula escribió el modelo pero no registró todas las
                     # imágenes ("El modelo sirve"). No es un error: se sigue con lo registrado.
                     try:
@@ -399,6 +458,35 @@ class Runner:
                     res = next((l for l in reversed(getattr(job, "last_tail", []))
                                 if "RESULTADO" in l), "")
                     m = re.search(r"(\d+)% de las im", res)
+                    if m and "parcial" in res and int(m.group(1)) < 70 and cfg.get("sfm_rescate", True) \
+                            and "--features" not in " ".join(args):
+                        # pocas imágenes unidas (videos de cerca, borrosos, superficies oscuras):
+                        # se prueba el detector aprendido de Spirula y se queda el mejor resultado
+                        n1 = _sfm_registered(ds)
+                        bak = os.path.join(ds, "sparse_sift")
+                        shutil.rmtree(bak, ignore_errors=True)
+                        os.replace(os.path.join(ds, "sparse"), bak)
+                        shutil.rmtree(os.path.join(ds, "features"), ignore_errors=True)
+                        self.log(f"{job.name}: SfM parcial ({m.group(1)}%, {n1} imágenes); "
+                                 f"se reintenta con el detector robusto (aliked)")
+                        self._set(job, f"SfM parcial {m.group(1)}%: reintentando con detector robusto")
+                        try:
+                            self._run(job, args + ["--features", "aliked-n16rot"], logf, ok_codes=(0, 3))
+                            n2 = _sfm_registered(ds)
+                        except RuntimeError as e:
+                            if self.cancel.is_set():
+                                raise
+                            self.log(f"{job.name}: el detector robusto falló ({e})")
+                            n2 = -1
+                        if n2 > n1:
+                            shutil.rmtree(bak, ignore_errors=True)
+                            res = next((l for l in reversed(job.last_tail) if "RESULTADO" in l), res)
+                            m = re.search(r"(\d+)% de las im", res)
+                            self.log(f"{job.name}: detector robusto: {n2} imágenes (antes {n1}) — se usa este")
+                        else:
+                            shutil.rmtree(os.path.join(ds, "sparse"), ignore_errors=True)
+                            os.replace(bak, os.path.join(ds, "sparse"))
+                            self.log(f"{job.name}: detector robusto no mejoró ({n2} vs {n1}); se queda el primero")
                     if m and "parcial" in res:
                         job.aviso = (f"SfM parcial: {m.group(1)}% de las imágenes registradas "
                                      f"(el modelo puede no cubrir toda la puerta/ventana)")

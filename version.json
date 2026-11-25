@@ -1,16 +1,16 @@
 {
- "version": "2026.11.24.6",
- "fecha": "2026-11-24 18:54",
- "notas": "Cada PNG resultante queda también dentro de su carpeta «<prefijo><nombre>» (ej. 4.b12-p3-a\\b12-p3-a.png), sin ocupar espacio extra. El prefijo (4.) se cambia en «2. Revisar» (Carpeta por PNG) o en Configuración; al cambiarlo, las carpetas se renombran solas.",
+ "version": "2026.11.24.7",
+ "fecha": "2026-11-24 21:24",
+ "notas": "Paso 1: los videos se unen en el SfM como SECUENCIA de video (--data-type video), mucho más robusto para tomas de cerca. Si el SfM sale parcial (<70%), se reintenta solo con el detector aprendido de Spirula (aliked) y se queda el mejor. En «Reprocesar marcados», las puertas con SfM parcial rehacen también las poses.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "2a77eb6834f0e0c564a0ca2bacd5f5a305bf4fa4403e8115d43d208f93e749af",
-  "pipeline.py": "09858dc68060b921b416073edbaeed8e70d98dc245b79a7f369c6fce3dba962d",
+  "app.py": "c6fcc84d6022191b51802e068d7e690b0e5a5f3294d563774d274c92060ca995",
+  "pipeline.py": "748c7053e9af4debc98fc25b223f298ead8ab8d3e0f8008d60603da8e2ef0159",
   "render_ortho.py": "a829838a79470a326bba30ee702a87ee06f96a5803877e59196cc6fc167733d7",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "7b62fc009b2c7cf35f080fb6ee240cd1d2832b8d018b23cd4dcf71caed73f862",
+  "app_version.py": "1317398775ab3fee7fe1c8eda64f2a3a1109ccff71d95dcc9cc90103dd22f857",
   "cubo.py": "d59f820fb3dae8fdce0472cc97fcfe5d550c5a32affe4ed55b29ed03535f2a59"
  }
 }

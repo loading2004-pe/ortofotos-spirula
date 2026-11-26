@@ -188,9 +188,50 @@ def _why(tail):
     return tail[-1][:220] if tail else ""
 
 
-def quality_warnings(info=None, sfm_pct=None):
+def prune_stale(out_dir, keep_names, cfg=None):
+    """Mueve a «anteriores/» las ortofotos de .ply que ya no están en la carpeta (datos viejos),
+    para que «2. Revisar» muestre solo lo actual. No borra nada."""
+    if not os.path.isdir(out_dir):
+        return []
+    keep = {k.lower() for k in keep_names}
+    old = os.path.join(out_dir, "anteriores")
+    moved = []
+    man = read_manifest(out_dir)
+    for f in os.listdir(out_dir):
+        stem, ext = os.path.splitext(f)
+        if ext.lower() != ".png":
+            continue
+        clean = stem[2:] if stem.lower().startswith("x_") else stem
+        if clean.lower() in keep:
+            continue
+        os.makedirs(old, exist_ok=True)
+        dst = os.path.join(old, f)
+        if os.path.exists(dst):
+            os.remove(dst)
+        os.replace(os.path.join(out_dir, f), dst)
+        pre = str((cfg or {}).get("prefijo_carpeta_png", "") or "")
+        for dd in (pre + clean, clean + " (6 caras)"):
+            dpath = os.path.join(out_dir, dd)
+            if os.path.isdir(dpath):
+                shutil.rmtree(os.path.join(old, dd), ignore_errors=True)
+                os.replace(dpath, os.path.join(old, dd))
+        man.pop(clean, None)
+        set_warnings(out_dir, clean, [])
+        moved.append(clean)
+    if moved:
+        write_manifest(out_dir, man)
+    return moved
+
+
+def quality_warnings(info=None, sfm_pct=None, cams_note=""):
     """Avisos de calidad de una ortofoto, para verlos en «2. Revisar» apenas sale."""
     w = []
+    if cams_note == "sin_original":
+        w.append("Sin cámaras de Spirula: es una copia limpiada y en esta PC no está su modelo original "
+                 "para alinearla; se usó la detección automática")
+    elif cams_note == "no_calza":
+        w.append("Las cámaras de Spirula no calzan con este .ply (¿se editó/escaló de más?); "
+                 "se usó la detección automática")
     if sfm_pct is not None and sfm_pct < 70:
         w.append(f"SfM parcial: solo {sfm_pct}% de las imágenes se unieron; puede tener zonas mal "
                  f"formadas (conviene regrabar más de lejos, despacio y con luz)")
@@ -914,31 +955,169 @@ def list_plys(folder, recursive=True):
     return out
 
 
-def find_cams(name, ply_path, cfg, root=None, store=None):
-    """Busca las cámaras de un modelo: junto al .ply, en el almacén del programa o en
-    la carpeta de trabajo de la raíz. Devuelve (centros, arriba, origen) o (None, None, '')."""
+def _tokens(s):
+    return [t for t in re.split(r"[\s_\-.]+", os.path.splitext(os.path.basename(s))[0].lower()) if t]
+
+
+def job_key_for(name, store=None, extra=()):
+    """Trabajo (de Spirula) al que pertenece un .ply aunque tenga sufijos
+    ('B12-P10-A_Limpio_Fabiola' -> 'b12-p10-a'): el nombre de trabajo más largo con el que empieza."""
+    toks = _tokens(name)
+    keys = set(extra)
+    if store and os.path.isdir(store):
+        keys |= {os.path.splitext(f)[0] for f in os.listdir(store) if f.lower().endswith(".json")}
+    best, blen = None, 0
+    for k in keys:
+        kt = _tokens(k)
+        if kt and toks[:len(kt)] == kt and len(kt) > blen and not re.fullmatch(r"[ab]( \(\d+\))?", k):
+            best, blen = k, len(kt)
+    return best
+
+
+def find_original_ply(key, cfg, root=None, near=None, store=None):
+    """El .ply entrenado por Spirula para ese trabajo (para alinear una copia limpiada)."""
+    reg = _models_registry(store)
+    p = reg.get(key)
+    if p and os.path.isfile(p):
+        return p
+    roots = [r for r in (root, cfg.get("ultima_raiz")) if r]
+    anc = near
+    for _ in range(3):
+        if not anc:
+            break
+        roots.append(anc)
+        anc = os.path.dirname(anc)
+    seen = set()
+    for r in roots:
+        for pat in (os.path.join(r, "_orto_trabajo", key, "runs"), os.path.join(r, "*", "_orto_trabajo", key, "runs"),
+                    os.path.join(r, "*", "*", "_orto_trabajo", key, "runs")):
+            for runs in glob.glob(pat):
+                if runs in seen:
+                    continue
+                seen.add(runs)
+                ply = newest_ply(runs)
+                if ply:
+                    return ply
+    if cfg.get("carpeta_trabajo"):
+        ply = newest_ply(os.path.join(cfg["carpeta_trabajo"], key, "runs"))
+        if ply:
+            return ply
+    return None
+
+
+def _models_registry(store):
+    if not store:
+        return {}
+    try:
+        with open(os.path.join(os.path.dirname(store), "modelos.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def register_model(store, key, ply):
+    """Recuerda dónde quedó el .ply entrenado de cada trabajo (para alinear sus copias limpiadas)."""
+    if not store or not ply:
+        return
+    reg = _models_registry(store)
+    reg[key] = ply
+    try:
+        with open(os.path.join(os.path.dirname(store), "modelos.json"), "w", encoding="utf-8") as f:
+            json.dump(reg, f, ensure_ascii=False, indent=1)
+    except OSError:
+        pass
+
+
+_ALIGN_LOCK = threading.Lock()
+
+
+def _aligned_cams(ply_path, orig_ply, cc, uu, store, log=None):
+    """Cámaras de Spirula llevadas al .ply limpiado (alineándolo con su original). None si no calza."""
+    import numpy as np
+    import alinear
+    from render_ortho import read_splat_ply
+    st = os.stat(ply_path)
+    ost = os.stat(orig_ply)
+    cache_dir = os.path.join(os.path.dirname(store), "alineaciones") if store else None
+    ck = re.sub(r"[^\w.-]+", "_", f"{os.path.abspath(ply_path)}_{st.st_size}_{int(st.st_mtime)}_{ost.st_size}")[-180:]
+    cpath = os.path.join(cache_dir, ck + ".json") if cache_dir else None
+    res = None
+    if cpath and os.path.isfile(cpath):
+        try:
+            with open(cpath, encoding="utf-8") as f:
+                j = json.load(f)
+            res = (np.array(j["R"]), np.array(j["t"]), j["err"], j["inl"])
+        except (OSError, ValueError, KeyError):
+            res = None
+    if res is None:
+        import cubo
+        with _ALIGN_LOCK:      # usa bastante memoria: de a uno
+            a = cubo._opaque_pts(read_splat_ply(ply_path), 60_000)
+            b = cubo._opaque_pts(read_splat_ply(orig_ply), 300_000)
+            res = alinear.register(a, b, log=log)
+        if res and cpath:
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                with open(cpath, "w", encoding="utf-8") as f:
+                    json.dump({"R": res[0].tolist(), "t": res[1].tolist(), "err": res[2], "inl": res[3],
+                               "original": orig_ply}, f)
+            except OSError:
+                pass
+    if not alinear.is_good(res):
+        return None
+    return alinear.cams_into_clean(np.asarray(cc), np.asarray(uu), res[0], res[1])
+
+
+def find_cams(name, ply_path, cfg, root=None, store=None, log=None):
+    """Cámaras de Spirula para un modelo. Devuelve (centros, arriba, origen) o (None, None, motivo).
+    Solo se usan si está comprobado que están en el mismo sistema que el .ply:
+      - es el .ply entrenado tal cual (o una copia sin tocar), o
+      - es una copia limpiada/girada (SuperSplat) y se ALINEÓ con su original de Spirula."""
     from render_ortho import load_cams_json, cams_from_workspace
+    import numpy as np
     d = os.path.dirname(ply_path)
     stem = os.path.splitext(os.path.basename(ply_path))[0]
-    cands = [os.path.join(d, stem + ".cam.json"), os.path.join(d, name + ".cam.json")]
-    if store:
-        cands.append(os.path.join(store, name + ".json"))
-    for c in cands:
-        if os.path.isfile(c):
+    key = job_key_for(stem, store) or job_key_for(name, store) or name
+    orig = find_original_ply(key, cfg, root, d, store)
+    # cámaras: junto al .ply, en el almacén o en la carpeta de trabajo
+    cc = uu = None
+    src = ""
+    for c in (os.path.join(d, stem + ".cam.json"), os.path.join(d, name + ".cam.json"),
+              os.path.join(store, key + ".json") if store else "", os.path.join(store, name + ".json") if store else ""):
+        if c and os.path.isfile(c):
             try:
                 cc, uu = load_cams_json(c)
-                return cc, uu, os.path.basename(c)
+                src = os.path.basename(c)
+                break
             except Exception:
                 pass
-    roots = [r for r in (root, os.path.dirname(d), os.path.dirname(os.path.dirname(d))) if r]
-    for r in roots:
-        wd = work_dir(cfg, r, name)
+    if cc is None and orig:
+        runs = os.path.dirname(os.path.dirname(orig)) if os.path.basename(os.path.dirname(orig)).startswith("step-") else os.path.dirname(orig)
+        wd = os.path.dirname(os.path.dirname(runs)) if os.path.basename(runs) == "modelo" else os.path.dirname(runs)
         if os.path.isdir(os.path.join(wd, "dataset")):
             cc, uu = cams_from_workspace(os.path.join(wd, "dataset"), os.path.join(wd, "runs", "modelo"),
                                          log=lambda *_: None)
-            if cc is not None:
-                return cc, uu, "_orto_trabajo"
-    return None, None, ""
+            src = "_orto_trabajo"
+    if cc is None:
+        return None, None, ""
+    if orig and os.path.abspath(orig) == os.path.abspath(ply_path):
+        return cc, uu, src
+    if orig:
+        try:
+            if os.path.getsize(orig) == os.path.getsize(ply_path):     # copia sin tocar
+                return cc, uu, src
+            al = _aligned_cams(ply_path, orig, cc, uu, store, log)
+        except Exception as e:
+            if log:
+                log(f"[alinear] {e}")
+            al = None
+        if al is not None:
+            return al[0], al[1], src + " (alineadas con el original)"
+        return None, None, "no_calza"
+    # sin el original para comprobar: solo si la cámara viene JUNTO al .ply (exportado sin tocar)
+    if src.endswith(".cam.json"):
+        return cc, uu, src
+    return None, None, "sin_original"
 
 
 def read_manifest(out_dir):
@@ -972,8 +1151,9 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
         on_item(name, "renderizando", "")
         try:
             cams, ups, origen = find_cams(name, ply, cfg, root, store)
-            if cams is None and prev and prev.get("vertical", 1) < 3 and not prev.get("ambiente") \
-                    and not prev.get("cubo"):
+            if prev and not prev.get("ambiente") and not prev.get("cubo") and (
+                    (cams is None and prev.get("vertical", 1) < 3)
+                    or ("con_camaras" in prev and bool(prev["con_camaras"]) != (cams is not None))):
                 # sin cámaras la vertical (-Y / -Z) y el lado filmado ahora se detectan bien; los
                 # giros y ajustes hechos a mano para corregir la detección antigua ya no sirven
                 flip, rot = False, 0
@@ -1003,14 +1183,17 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
                 return
             info = render_auto(ply, out_png, name, cfg, wd=wd if (wd and os.path.isdir(wd)) else None,
                                cams=cams, ups=ups, conf=conf, flip=flip, rot90=rot)
-            warns = quality_warnings(info, sfm_partial_pct(os.path.join(wd, "log.txt")) if wd else None)
+            warns = quality_warnings(info, sfm_partial_pct(os.path.join(wd, "log.txt")) if wd else None,
+                                     origen if cams is None else "")
             with lock:
-                man[name] = {"ply": ply, "flip": flip, "rot": rot, "vertical": 3}
+                man[name] = {"ply": ply, "flip": flip, "rot": rot, "vertical": 3,
+                             "con_camaras": cams is not None}
                 if prev.get("cubo") is not None:
                     man[name]["cubo"] = prev["cubo"]
                 write_manifest(out_dir, man)
                 set_warnings(out_dir, name, warns)
-            nota = "con cámaras" if cams is not None else "lado detectado automáticamente"
+            nota = (f"con cámaras de Spirula ({origen})" if cams is not None
+                    else "lado detectado automáticamente")
             if info.get("modo") and info["modo"] != "fachada":
                 nota = info["modo"]
             on_item(name, "listo", f"{info['size'][0]}x{info['size'][1]} px, "
@@ -1107,6 +1290,8 @@ def render_auto(ply, out_png, name, cfg, wd=None, cams=None, ups=None, workspace
     if cfg.get("_cam_store") and cams is not None:
         try:
             ro.save_cams_json(os.path.join(cfg["_cam_store"], name + ".json"), cams, ups)
+            if workspace:          # recordar el .ply entrenado: sirve para alinear sus copias limpiadas
+                register_model(cfg["_cam_store"], name, ply)
         except OSError:
             pass
     conf = dict(conf if conf is not None else (cubo.load_config(wd) if wd else {}))

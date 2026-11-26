@@ -837,13 +837,16 @@ class App(tk.Tk):
                                     initialdir=self.cfg.get("carpeta_ply_limpios") or None)
         if not d:
             return
-        items = pl.list_plys(d)
+        items = self._plys_of(d, ask=True)
         if not items:
             messagebox.showinfo("Vincular", f"No encontré archivos .ply en:\n{d}")
             return
         self.cfg["carpeta_ply_limpios"] = d
         pl.save_config(CONFIG_PATH, self.cfg)
-        lista = "\n".join(f"  {n}  ←  {os.path.basename(p_)}" for p_, n in items[:25])
+        out = os.path.join(d, "ortofotos_limpias")    # Revisar pasa a esta carpeta (no a la anterior)
+        self.review_dir = out if os.path.isdir(out) else None
+        self.load_review()
+        lista = "\n".join(f"  {n}  ←  {os.path.relpath(p_, d)}" for p_, n in items[:25])
         mas = f"\n  … y {len(items) - 25} más" if len(items) > 25 else ""
         self.link_lbl.config(text=f"Carpeta de .ply limpios vinculada: {d}  ({len(items)} .ply)")
         if messagebox.askyesno("Vincular carpeta",
@@ -852,12 +855,29 @@ class App(tk.Tk):
                                "\n\n¿Renderizar ahora? (no usa Spirula)"):
             self._start_linked(items, d)
 
+    def _plys_of(self, d, ask=False):
+        """.ply de la carpeta vinculada. Si hay también en subcarpetas (p. ej. un zip descomprimido
+        adentro), se pregunta, para no mezclar copias viejas."""
+        top = pl.list_plys(d, recursive=False)
+        allp = pl.list_plys(d)
+        extra = [p_ for p_, _n in allp if os.path.dirname(os.path.abspath(p_)) != os.path.abspath(d)]
+        incl = self.cfg.get("_link_subcarpetas", {}).get(os.path.abspath(d))
+        if extra and (ask or incl is None):
+            subs = sorted({os.path.relpath(os.path.dirname(p_), d) for p_ in extra})
+            incl = messagebox.askyesno(
+                "Vincular carpeta",
+                f"En la carpeta hay {len(top)} .ply y además {len(extra)} en subcarpetas:\n  "
+                + "\n  ".join(subs[:10]) + "\n\n¿Incluir también los de las subcarpetas?\n"
+                "(No = solo los de la carpeta principal; recomendado si son copias o zips descomprimidos)")
+            self.cfg.setdefault("_link_subcarpetas", {})[os.path.abspath(d)] = bool(incl)
+        return allp if (extra and incl) else top
+
     def _render_linked(self):
         d = self.cfg.get("carpeta_ply_limpios", "")
         if not d or not os.path.isdir(d):
             messagebox.showinfo("Renderizar", "Primero usa '2) Vincular carpeta de .ply limpios…'.")
             return
-        items = pl.list_plys(d)
+        items = self._plys_of(d)
         if not items:
             messagebox.showinfo("Renderizar", f"No hay .ply en:\n{d}")
             return
@@ -881,10 +901,16 @@ class App(tk.Tk):
         self.link_lbl.config(text=f"Renderizando 0/{len(items)}…")
         self.q.put(("log", f"Revisar: renderizando {len(items)} .ply limpios de {folder}"))
 
+        full = {n for _p, n in self._plys_of(folder)} == {n for _p, n in items}
+
         def work():
             pl.render_linked(items, out, cfg, root=self.root_var.get() or None,
                              store=self._cam_store(),
                              on_item=lambda n, st, det: self.q.put(("link", (n, st, det))))
+            if full:     # ortofotos de .ply que ya no están: a «anteriores/» (no se borran)
+                moved = pl.prune_stale(out, [n for _p, n in items], cfg)
+                if moved:
+                    self.q.put(("log", f"Movidas a anteriores/ (ya no están sus .ply): {', '.join(moved)}"))
             self.q.put(("linkfin", out))
         threading.Thread(target=work, daemon=True).start()
 

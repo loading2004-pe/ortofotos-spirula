@@ -45,6 +45,23 @@ def _read(src, name, timeout=6):
         return f.read()
 
 
+API_URL = "https://api.github.com/repos/loading2004-pe/ortofotos-spirula/contents/"
+
+
+def _read_api(name, timeout=15):
+    """Lee el archivo desde la API de GitHub (sin el caché de raw.githubusercontent, que a veces
+    entrega una versión vieja durante unos minutos tras publicar)."""
+    req = urllib.request.Request(API_URL + urllib.request.quote(name) + "?ref=main",
+                                 headers={"User-Agent": "OrtofotosSpirula",
+                                          "Accept": "application/vnd.github.raw"})
+    with urllib.request.urlopen(req, timeout=timeout, context=ssl.create_default_context()) as r:
+        return r.read()
+
+
+def _is_default(src):
+    return (src or DEFAULT_URL).rstrip("/") == DEFAULT_URL.rstrip("/")
+
+
 def local_version(code_dir):
     try:
         with open(os.path.join(code_dir, "version.json"), encoding="utf-8") as f:
@@ -54,24 +71,69 @@ def local_version(code_dir):
 
 
 def remote_manifest(src, timeout=6):
-    return json.loads(_read(src, "version.json", timeout).decode("utf-8"))
+    man, err = None, None
+    try:
+        man = json.loads(_read(src, "version.json", timeout).decode("utf-8"))
+    except Exception as e:
+        err = e
+    if _is_default(src):            # la API no tiene el caché de raw: se usa la más nueva
+        try:
+            m2 = json.loads(_read_api("version.json", max(timeout, 10)).decode("utf-8"))
+            if man is None or vkey(m2.get("version")) > vkey(man.get("version")):
+                man = m2
+        except Exception:
+            pass
+    if man is None:
+        raise err or OSError("sin manifiesto")
+    return man
 
 
-def download(src, man, data_dir, log=lambda *_: None):
-    """Descarga y verifica los archivos del manifiesto en <datos>/codigo (atómico)."""
+def _fetch_ok(src, name, sha):
+    data = _read(src, name, timeout=30)
+    if hashlib.sha256(data).hexdigest() == sha:
+        return data
+    if _is_default(src):
+        try:
+            data = _read_api(name, 30)
+            if hashlib.sha256(data).hexdigest() == sha:
+                return data
+        except Exception:
+            pass
+    return None
+
+
+def download(src, man, data_dir, log=lambda *_: None, _retry=True):
+    """Descarga y verifica los archivos del manifiesto en <datos>/codigo (atómico).
+    Si un archivo no coincide (se publicó otra versión mientras tanto), vuelve a leer el
+    manifiesto y descarga esa versión."""
+    for name, sha in man.get("archivos", {}).items():
+        if "/" in name or "\\" in name or name.startswith("."):
+            raise ValueError("nombre de archivo no permitido: " + name)
+    got = {}
+    for name, sha in man.get("archivos", {}).items():
+        data = _fetch_ok(src, name, sha)
+        if data is None:
+            if _retry:
+                try:
+                    m2 = remote_manifest(src, 15)
+                except Exception:
+                    m2 = None
+                if m2 and vkey(m2.get("version")) >= vkey(man.get("version")) and \
+                        m2.get("archivos") != man.get("archivos"):
+                    log(f"  hay una versión más nueva ({m2.get('version')}); se descarga esa")
+                    man.clear()
+                    man.update(m2)
+                    return download(src, man, data_dir, log, _retry=False)
+            raise ValueError(f"{name}: la descarga no coincide (sha256)")
+        got[name] = data
+        log(f"  descargado {name}")
     final = os.path.join(data_dir, CODE_DIRNAME)
     tmp = final + "_nuevo"
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
-    for name, sha in man.get("archivos", {}).items():
-        if "/" in name or "\\" in name or name.startswith("."):
-            raise ValueError("nombre de archivo no permitido: " + name)
-        data = _read(src, name, timeout=30)
-        if hashlib.sha256(data).hexdigest() != sha:
-            raise ValueError(f"{name}: la descarga no coincide (sha256)")
+    for name, data in got.items():
         with open(os.path.join(tmp, name), "wb") as f:
             f.write(data)
-        log(f"  descargado {name}")
     with open(os.path.join(tmp, "version.json"), "w", encoding="utf-8") as f:
         json.dump(man, f, indent=1, ensure_ascii=False)
     prev = final + "_anterior"

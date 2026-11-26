@@ -1,7 +1,7 @@
 {
- "version": "2026.11.25.8",
- "fecha": "2026-11-25 20:24",
- "notas": "Puertas/ventanas sueltas ya no se confunden con un AMBIENTE (salían vistas desde arriba, volteadas y borrosas, p. ej. V10.2): un ambiente solo se arma si las paredes tienen la misma altura y los archivos no tienen códigos distintos de puerta/ventana (p19, p20, v09…). Al volver a renderizar se borra ese registro antiguo. Añadido V10.2 a las pruebas automáticas.",
+ "version": "2026.11.25.9",
+ "fecha": "2026-11-25 20:27",
+ "notas": "Actualizar ya no falla con «la descarga no coincide (sha256)» cuando se acaba de publicar otra versión: si el caché de GitHub entrega algo viejo, descarga desde la API de GitHub o pasa a la versión más nueva.",
  "min_lanzador": 1,
  "archivos": {
   "app.py": "9d087ed298069f1cc95b095554b09cf34ca463f8485f25192799e819c7ba962c",
@@ -9,8 +9,8 @@
   "render_ortho.py": "7e16abed098021d34b8c37b1c46e50a013db9632616fd295b734d35361421cc8",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
-  "updater.py": "de298f710a0b4ea9439bef5d781016c9313cbdda1e593d90b7e47528e89c0965",
-  "app_version.py": "e4e5247f4d95eba5666bfea2dabd19fe008c164bc5b316d52a47943416966412",
+  "updater.py": "22d484e6076238d0bcf76c94ff3872be08ee3847f8b67184a007e7af581e502c",
+  "app_version.py": "cc6f67185120a7e80a176f78a1979786f971c5c51f5d71dd9d3f18b67bd9e41b",
   "cubo.py": "22417de45bb88d046edce984c31ea2696ec142d56ef46d2061e7e86a0537fdce",
   "alinear.py": "e05331441eb02286324b67bbdf2bea08d4fce81108219def0748a440c9433136",
   "equipo.json": "f0682f5dbbdef3b3bc59f6db15b77adf04e8763484b7eac1d1be1bf89b81f0ff"

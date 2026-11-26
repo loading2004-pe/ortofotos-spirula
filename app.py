@@ -171,7 +171,8 @@ def make_flow(frame, padx=4, pady=3):
             x += ww + padx
             rowh = max(rowh, hh)
         h = y + rowh
-        if int(frame.cget("height") or 0) != h:
+        if st.get("h") != h:        # (cget('height') en Windows devuelve un objeto Tcl, no un número)
+            st["h"] = h
             frame.configure(height=h)
     frame.bind("<Configure>", relayout, add="+")
     frame.after_idle(relayout)

@@ -1,16 +1,16 @@
 {
- "version": "2026.11.25.10",
- "fecha": "2026-11-25 20:39",
- "notas": "Pantallas chicas: los botones pasan solos a otra fila si no caben y cada pestaña tiene barra de desplazamiento cuando la ventana es pequeña (nada queda oculto). «2. Revisar»: al renderizar aparece un panel con barra de avance, porcentaje, qué está haciendo con cada puerta (buscando cámaras, alineando con el original de Spirula, renderizando), la última terminada, tiempo transcurrido y tiempo restante.",
+ "version": "2026.11.25.11",
+ "fecha": "2026-11-25 20:43",
+ "notas": "Corrige un error al abrir en Windows tras la 2026.11.25.10 (barras de botones adaptables).",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "d0956d1193f7285a490bb3f8647c8d4b0b03bac37bd2cbffdc7f40f9acc9f02e",
+  "app.py": "52467d35e631302a3b6cd1014497f1de95f43a0bcfe92a9fc35545e49e06de13",
   "pipeline.py": "321e891238e8538b6e4e31c1f4d7cacc7749b4d886e0f214fd3ce91cace5e9ff",
   "render_ortho.py": "7e16abed098021d34b8c37b1c46e50a013db9632616fd295b734d35361421cc8",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "22d484e6076238d0bcf76c94ff3872be08ee3847f8b67184a007e7af581e502c",
-  "app_version.py": "b1f975cd77b5c3956a2ea81d7a5078b8ffb10bdeda88c3d4ae3b34faa3666e6b",
+  "app_version.py": "087fb2014826d8ee2f80fcddeda38914cb0d0a865abe3a1fb218fb1064649879",
   "cubo.py": "22417de45bb88d046edce984c31ea2696ec142d56ef46d2061e7e86a0537fdce",
   "alinear.py": "e05331441eb02286324b67bbdf2bea08d4fce81108219def0748a440c9433136",
   "equipo.json": "f0682f5dbbdef3b3bc59f6db15b77adf04e8763484b7eac1d1be1bf89b81f0ff"

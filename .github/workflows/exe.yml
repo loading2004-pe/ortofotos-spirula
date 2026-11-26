@@ -21,7 +21,7 @@ jobs:
           --name OrtofotosSpirula --icon icono.ico --paths .
           --hidden-import app --hidden-import render_ortho --hidden-import pipeline
           --hidden-import ply_convert --hidden-import updater --hidden-import app_version
-          --hidden-import cli --hidden-import cubo --collect-submodules numba --collect-submodules llvmlite
+          --hidden-import cli --hidden-import cubo --hidden-import alinear --hidden-import supersplat --collect-submodules numba --collect-submodules llvmlite
           launcher.py
       - name: Prueba rápida
         run: |

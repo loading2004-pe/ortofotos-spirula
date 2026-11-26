@@ -219,6 +219,7 @@ class App(tk.Tk):
         self._build_process(nb)
         self._build_review(nb)
         self._build_convert(nb)
+        self._build_supersplat(nb)
         self._build_config(nb)
         self.after(150, self._poll)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -680,6 +681,7 @@ class App(tk.Tk):
         ttk.Button(bar2, text="↔ Voltear vista", command=lambda: self._adjust(flip=True)).pack(side="left")
         ttk.Button(bar2, text="⟳ Girar 90°", command=lambda: self._adjust(rot=1)).pack(side="left", padx=4)
         ttk.Button(bar2, text="🎯 Alinear / visor", command=self._open_cube_viewer).pack(side="left")
+        ttk.Button(bar2, text="✏ Editar en SuperSplat", command=self._ss_edit_current).pack(side="left", padx=4)
         make_flow(bar2)
         self.link_lbl = ttk.Label(right, text="", foreground="#555")
         self.link_lbl.pack(anchor="w", pady=(4, 0))
@@ -949,9 +951,9 @@ class App(tk.Tk):
     def _cam_store(self):
         return os.path.join(DATA_DIR, "camaras")
 
-    def _link_folder(self):
-        d = filedialog.askdirectory(title="Carpeta con los .ply limpios (exportados de SuperSplat)",
-                                    initialdir=self.cfg.get("carpeta_ply_limpios") or None)
+    def _link_folder(self, d=None, preguntar=True):
+        d = d or filedialog.askdirectory(title="Carpeta con los .ply limpios (exportados de SuperSplat)",
+                                         initialdir=self.cfg.get("carpeta_ply_limpios") or None)
         if not d:
             return
         items = self._plys_of(d, ask=True)
@@ -966,6 +968,9 @@ class App(tk.Tk):
         lista = "\n".join(f"  {n}  ←  {os.path.relpath(p_, d)}" for p_, n in items[:25])
         mas = f"\n  … y {len(items) - 25} más" if len(items) > 25 else ""
         self.link_lbl.config(text=f"Carpeta de .ply limpios vinculada: {d}  ({len(items)} .ply)")
+        if not preguntar:
+            self._start_linked(items, d)
+            return
         if messagebox.askyesno("Vincular carpeta",
                                f"Encontré {len(items)} .ply:\n{lista}{mas}\n\n"
                                f"Las ortofotos se guardarán en:\n{os.path.join(d, 'ortofotos_limpias')}"
@@ -1243,6 +1248,193 @@ class App(tk.Tk):
             self.q.put(("linkfin", d))
         threading.Thread(target=work, daemon=True).start()
 
+    # ------------------------------------------------ 4. SuperSplat (editor dentro de la app)
+    def _build_supersplat(self, nb):
+        f, self.ss_tab = self._tab(nb, "4. SuperSplat", padding=16)
+        ttk.Label(f, text="SuperSplat: ver y limpiar tus .ply sin abrir la página web",
+                  font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        inst = ttk.Label(f, foreground="#444", justify="left", text=(
+            "1.  Abre el editor (vacío, o con tus .ply). Se abre en una ventana propia; funciona sin internet.\n"
+            "2.  Míralo en su modelo nativo o límpialo: selecciona lo que sobra y bórralo. No muevas ni "
+            "gires el modelo si quieres usar las cámaras de Spirula.\n"
+            "3.  En SuperSplat: Archivo → Exportar → PLY (.ply)… y guárdalo en la carpeta de abajo "
+            "(«Guardar como» guarda un proyecto .ssproj, no un .ply).\n"
+            "4.  La lista de abajo muestra lo que guardaste; pulsa «Renderizar en la app» para "
+            "procesarlo en 2. Revisar."))
+        inst.pack(anchor="w", fill="x", pady=(6, 12))
+        inst.bind("<Configure>", lambda e: inst.config(wraplength=max(300, e.width - 10)))
+        row = ttk.Frame(f)
+        row.pack(fill="x")
+        st = ttk.Style(self)
+        st.configure("Big.TButton", font=("Segoe UI", 11, "bold"), padding=(14, 10))
+        ttk.Button(row, text="🟠  Abrir SuperSplat", style="Big.TButton",
+                   command=lambda: self._ss_open([])).pack(side="left")
+        ttk.Button(row, text="📂  Abrir .ply en SuperSplat…", style="Big.TButton",
+                   command=self._ss_pick).pack(side="left", padx=(8, 0))
+        make_flow(row, padx=8)
+        r2 = ttk.Frame(f)
+        r2.pack(fill="x", pady=(16, 4))
+        ttk.Label(r2, text="Carpeta donde guardas los .ply editados:").pack(side="left")
+        self.ss_dir = tk.StringVar(value=self.cfg.get("ss_carpeta_guardado")
+                                   or self.cfg.get("carpeta_ply_limpios", ""))
+        ttk.Entry(r2, textvariable=self.ss_dir).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Button(r2, text="Elegir…", command=self._ss_pick_dir).pack(side="left")
+        ttk.Button(r2, text="Abrir carpeta", command=lambda: open_path(self.ss_dir.get())
+                   if os.path.isdir(self.ss_dir.get()) else None).pack(side="left", padx=4)
+        cols = ("tam", "fecha", "estado")
+        tv = ttk.Treeview(f, columns=cols, show="tree headings", height=9, selectmode="extended")
+        tv.heading("#0", text=".ply en la carpeta")
+        tv.heading("tam", text="Tamaño")
+        tv.heading("fecha", text="Guardado")
+        tv.heading("estado", text="Estado")
+        tv.column("#0", width=380)
+        tv.column("tam", width=90, anchor="e")
+        tv.column("fecha", width=150, anchor="center")
+        tv.column("estado", width=260)
+        tv.tag_configure("nuevo", foreground="#1f5fa8")
+        tv.tag_configure("listo", foreground="#1a7f37")
+        tv.bind("<Double-1>", lambda e: self._ss_open(self._ss_selected()))
+        tv.pack(fill="both", expand=True, pady=(4, 6))
+        self.ss_tv = tv
+        r3 = ttk.Frame(f)
+        r3.pack(fill="x")
+        ttk.Button(r3, text="▶ Renderizar en la app (2. Revisar)", style="Big.TButton",
+                   command=self._ss_render).pack(side="left")
+        ttk.Button(r3, text="✏ Abrir seleccionados en SuperSplat",
+                   command=lambda: self._ss_open(self._ss_selected())).pack(side="left", padx=8)
+        make_flow(r3, padx=8)
+        self.ss_status = ttk.Label(f, text="", foreground="#555")
+        self.ss_status.pack(anchor="w", pady=(6, 0))
+        self._ss_sig = None
+        self.after(1500, self._ss_poll)
+
+    def _ss_pick_dir(self):
+        d = filedialog.askdirectory(title="Carpeta donde guardas los .ply editados en SuperSplat",
+                                    initialdir=self.ss_dir.get() or None)
+        if d:
+            self.ss_dir.set(d)
+            self.cfg["ss_carpeta_guardado"] = d
+            pl.save_config(CONFIG_PATH, self.cfg)
+            self._ss_sig = None
+            self._ss_poll(once=True)
+
+    def _ss_selected(self):
+        return [p for p in self.ss_tv.selection() if os.path.isfile(p)]
+
+    def _ss_poll(self, once=False):
+        """Lista los .ply de la carpeta de guardado (se actualiza sola al guardar en SuperSplat)."""
+        try:
+            d = self.ss_dir.get().strip().strip('"')
+            if os.path.isdir(d) and (once or self.nb.select() == str(self.ss_tab)):
+                if d != self.cfg.get("ss_carpeta_guardado"):
+                    self.cfg["ss_carpeta_guardado"] = d
+                    pl.save_config(CONFIG_PATH, self.cfg)
+                plys = pl.list_plys(d, recursive=False)
+                rows = []
+                done = pl.read_manifest(os.path.join(d, "ortofotos_limpias"))
+                for p_, n in plys:
+                    try:
+                        stt = os.stat(p_)
+                    except OSError:
+                        continue
+                    png = os.path.join(d, "ortofotos_limpias", n + ".png")
+                    if os.path.isfile(png) and os.path.getmtime(png) >= stt.st_mtime:
+                        est, tag = "✓ ortofoto lista", "listo"
+                    elif os.path.isfile(png):
+                        est, tag = "editado después de la ortofoto → renderizar", "nuevo"
+                    else:
+                        est, tag = "nuevo → renderizar", "nuevo"
+                    rows.append((p_, os.path.basename(p_), stt.st_size, stt.st_mtime, est, tag))
+                sig = tuple((r[0], r[2], r[3], r[4]) for r in rows)
+                if sig != self._ss_sig:
+                    self._ss_sig = sig
+                    sel = set(self.ss_tv.selection())
+                    self.ss_tv.delete(*self.ss_tv.get_children())
+                    for p_, b, sz, mt, est, tag in sorted(rows, key=lambda r: -r[3]):
+                        self.ss_tv.insert("", "end", iid=p_, text=b, tags=(tag,),
+                                          values=(f"{sz / 1e6:.0f} MB",
+                                                  time.strftime("%d/%m %H:%M", time.localtime(mt)), est))
+                        if p_ in sel:
+                            self.ss_tv.selection_add(p_)
+                    nuevos = sum(1 for r in rows if r[5] == "nuevo")
+                    self.ss_status.config(text=f"{len(rows)} .ply en la carpeta · {nuevos} por renderizar"
+                                          + ("" if done or rows else ""))
+        except tk.TclError:
+            return
+        if not once:
+            self.after(3000, self._ss_poll)
+
+    def _ss_pick(self):
+        files = filedialog.askopenfilenames(title="Elige los .ply para abrir en SuperSplat",
+                                            filetypes=[("Gaussian splat", "*.ply *.splat *.sog *.spz"),
+                                                       ("Todos", "*.*")],
+                                            initialdir=self.ss_dir.get() or None)
+        if files:
+            self._ss_open(list(files))
+
+    def _ss_open(self, plys):
+        import supersplat as ss
+        self.ss_status.config(text="Abriendo SuperSplat…" if ss.is_installed(DATA_DIR)
+                              else "Descargando SuperSplat (≈4 MB, solo la primera vez)…")
+        self.q.put(("log", f"SuperSplat: abriendo {len(plys)} archivo(s)"))
+
+        def work():
+            try:
+                ss.open_editor(DATA_DIR, plys, log=lambda m: self.q.put(("log", "SuperSplat: " + m)))
+                msg = ("SuperSplat abierto" + (f" con {len(plys)} archivo(s)" if plys else "")
+                       + ". Al terminar: Archivo → Exportar → PLY (.ply)… en la carpeta de abajo.")
+                if not ss.find_browser():
+                    msg += "  (No encontré Edge/Chrome: se abrió en el navegador.)"
+            except Exception as e:
+                msg = f"No se pudo abrir SuperSplat: {e}"
+                self.after(0, lambda: messagebox.showerror("SuperSplat", msg))
+            self.after(0, lambda: self.ss_status.config(text=msg))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _ss_render(self):
+        d = self.ss_dir.get().strip().strip('"')
+        if not os.path.isdir(d):
+            messagebox.showinfo("Renderizar", "Elige primero la carpeta donde guardas los .ply editados.")
+            return
+        sel = self._ss_selected()
+        nuevos = [iid for iid in self.ss_tv.get_children() if "nuevo" in self.ss_tv.item(iid, "tags")]
+        pick = sel or nuevos
+        if not pick:
+            if not messagebox.askyesno("Renderizar", "Todas tienen su ortofoto al día. ¿Renderizar todas otra vez?"):
+                return
+            pick = list(self.ss_tv.get_children())
+        self.cfg["carpeta_ply_limpios"] = d
+        pl.save_config(CONFIG_PATH, self.cfg)
+        out = os.path.join(d, "ortofotos_limpias")
+        self.review_dir = out if os.path.isdir(out) else None
+        self.nb.select(self.review_tab)
+        self.load_review()
+        names = {os.path.abspath(p) for p in pick}
+        items = [(p_, n) for p_, n in pl.list_plys(d, recursive=False) if os.path.abspath(p_) in names]
+        self.link_lbl.config(text=f"Carpeta de .ply limpios vinculada: {d}")
+        self._start_linked(items, d)
+
+    def _ss_edit_current(self):
+        i = self._cur()
+        if i is None:
+            messagebox.showinfo("SuperSplat", "Elige primero una imagen de la lista.")
+            return
+        d = self._results_dir()
+        fname = os.path.basename(self.files[i])
+        name = os.path.splitext(fname[2:] if fname.lower().startswith("x_") else fname)[0]
+        ply, _e = self._ply_for(name, d)
+        if not ply or not os.path.isfile(ply):     # la carpeta se movió: buscar al lado
+            par = os.path.dirname(os.path.abspath(d))
+            ply = next((p_ for p_, n in pl.list_plys(par, recursive=False) if n == name), None)
+        if not ply or not os.path.isfile(ply):
+            messagebox.showinfo("SuperSplat", "No encuentro el .ply de esta imagen.")
+            return
+        if os.path.basename(os.path.dirname(os.path.abspath(d))) and not self.ss_dir.get():
+            self.ss_dir.set(os.path.dirname(os.path.abspath(ply)))
+        self._ss_open([ply])
+        self.link_lbl.config(text=f"Abierto en SuperSplat: {os.path.basename(ply)} · guarda la versión "
+                                  f"limpia y renderízala desde «4. SuperSplat»")
+
     # ---------------------------------------------- SuperSplat (.ply limpios)
     def _job_names(self):
         if not self.jobs:
@@ -1270,7 +1462,10 @@ class App(tk.Tk):
             "expórtalos como .ply. Guárdalos en la carpeta 'ply_limpios' con el mismo "
             "nombre, o usa '2) Vincular .ply limpios…'." + ("\n\nSin .ply: " + ", ".join(err)
                                                           if err else ""))
-        if ok:
+        if ok and messagebox.askyesno("Exportar .ply", f"¿Abrir los {len(ok)} .ply en SuperSplat "
+                                      "(ventana de la app)?"):
+            self._ss_open([d for d in ok if isinstance(d, str) and os.path.isfile(d)] or [])
+        elif ok:
             open_path(exp)
 
     def _link_clean(self):

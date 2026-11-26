@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -621,8 +622,11 @@ def geo_roles(allp, name_roles=None, strict=True):
         hz = [n for n in G if roles[n] in ("techo", "suelo")]
         if len(walls) < 2 or not hz or not ok:
             return None
-        # las paredes ocupan casi toda la altura del ambiente
+        # las paredes ocupan casi toda la altura del ambiente y empiezan/terminan a la misma
+        # altura (son cortes del mismo modelo); modelos sueltos de puertas no cumplen esto
         if any(ext[n] < 0.55 * wh for n in walls):
+            return None
+        if any(G[n]["lo"][a] - wlo > 0.2 * wh or whi - G[n]["hi"][a] > 0.2 * wh for n in walls):
             return None
         # todos los recortes juntos (mismo modelo, no escenas distintas)
         diag = {n: float(np.linalg.norm(g["hi"] - g["lo"])) for n, g in G.items()}
@@ -631,6 +635,16 @@ def geo_roles(allp, name_roles=None, strict=True):
         if float(np.linalg.norm(uhi - ulo)) > 2.5 * max(diag.values()):
             return None
     return {"roles": roles, "up": up}
+
+
+_ELEM_RE = re.compile(r"(?:^|[^a-z0-9])([pv])\s*-?\s*(\d{1,3})(?=$|[^0-9])", re.I)
+
+
+def element_code(name):
+    """Código de puerta/ventana en el nombre ('b12-p19-a' -> 'p19', 'B12-V09-B' -> 'v9'), o None.
+    Archivos con códigos distintos son elementos distintos: nunca forman un ambiente."""
+    m = _ELEM_RE.search(os.path.basename(name).lower())
+    return f"{m.group(1)}{int(m.group(2))}" if m else None
 
 
 def find_ambientes(items, geo=None):
@@ -658,7 +672,8 @@ def find_ambientes(items, geo=None):
                 left += parts
         if len(valid) <= 1 and geo is not None:
             cand = (next(iter(valid.values())) if valid else []) + left
-            if len(cand) >= 3 and left:
+            if len(cand) >= 3 and left and len({c for c in (element_code(n) for _p, n, _r in cand)
+                                                if c}) < 2:
                 try:
                     rr = geo(cand)
                 except Exception:

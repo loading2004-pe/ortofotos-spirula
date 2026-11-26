@@ -1147,6 +1147,8 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
         if cancel is not None and cancel.is_set():
             return
         prev = man.get(name, {})
+        if prev.get("ambiente"):    # antes se tomó (por error) como parte de un ambiente
+            prev = {}
         flip, rot = bool(prev.get("flip")), int(prev.get("rot", 0))
         on_item(name, "renderizando", "")
         try:

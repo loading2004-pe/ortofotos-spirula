@@ -97,6 +97,14 @@ PERFILES = {  # perfiles de calidad rápidos
              "render_lado_largo_px": 7680},
     "Máxima (lento)": {"pasos_entrenamiento": 30000, "divisor_resolucion": 1,
                        "calidad_sfm": "extreme", "render_lado_largo_px": 7680},
+    # receta de David (especialista de Spirula): 30k, calidad 1/2, 2 millones de splats, SH 0,
+    # corrección de calibración «accurate»; para más detalle, SH 3
+    "Especialista Spirula (30k · 1/2 · 2M splats · SH0 · accurate)": {
+        "pasos_entrenamiento": 30000, "divisor_resolucion": 2, "max_splats": 2000000,
+        "sh_grado": "0", "correccion_calibracion": "accurate"},
+    "Especialista Spirula + detalle (SH3)": {
+        "pasos_entrenamiento": 30000, "divisor_resolucion": 2, "max_splats": 2000000,
+        "sh_grado": "3", "correccion_calibracion": "accurate"},
 }
 CALIDADES = [("Rápida (2000 px)", 2000), ("Normal (4000 px)", 4000),
              ("Alta (7680 px)", 7680), ("Máxima (10000 px)", 10000)]
@@ -106,6 +114,9 @@ CHOICES = {
     "divisor_resolucion": ["1", "2", "4", "8"],
     "render_lado_largo_px": ["2000", "4000", "6000", "7680", "10000"],
     "pasos_entrenamiento": ["3000", "5000", "7000", "10000", "15000", "30000"],
+    "max_splats": ["0", "1000000", "2000000", "3000000", "5000000"],
+    "sh_grado": ["", "0", "1", "2", "3"],
+    "correccion_calibracion": ["", "off", "basic", "accurate"],
 }
 
 FIELDS = [  # (clave, etiqueta, tipo)
@@ -113,7 +124,10 @@ FIELDS = [  # (clave, etiqueta, tipo)
     ("carpeta_resultados", "Carpeta de resultados (vacío = <raíz>/resultados)", "dir"),
     ("carpeta_trabajo", "Carpeta de trabajo temporal (vacío = <raíz>/_orto_trabajo)", "dir"),
     ("pasos_entrenamiento", "Pasos de entrenamiento", int),
-    ("divisor_resolucion", "Resolución de imagen para entrenar 1/N (N =)", int),
+    ("divisor_resolucion", "Calidad de entrenamiento: resolución 1/N (1 = completa, 2 = 1/2, 4 = 1/4)", int),
+    ("max_splats", "Máximo de splats (0 = lo que decida Spirula; ej. 2000000)", int),
+    ("sh_grado", "Grado SH (0 = empieza simple · 3 = más detalle · vacío = Spirula decide)", str),
+    ("correccion_calibracion", "Corrección de calibración (off / basic / accurate)", str),
     ("calidad_sfm", "Calidad SfM (low / medium / high / extreme)", str),
     ("fotogramas_por_segundo", "Fotogramas por segundo de video a extraer", float),
     ("ventana_nitidez", "Ventana de nitidez (elige el más nítido de N)", int),
@@ -2099,7 +2113,7 @@ class App(tk.Tk):
             row=0, column=0, sticky="w", pady=(0, 8))
         self.perfil = tk.StringVar(value="")
         cb = ttk.Combobox(outer, textvariable=self.perfil, values=list(PERFILES), state="readonly",
-                          width=40)
+                          width=62)
         cb.grid(row=0, column=1, sticky="w", pady=(0, 8))
         cb.bind("<<ComboboxSelected>>", self._apply_profile)
         for r0, (k, label, typ) in enumerate(FIELDS):
@@ -2155,6 +2169,20 @@ class App(tk.Tk):
         except ValueError as e:
             messagebox.showerror("Configuración", f"Valor inválido: {e}")
             return
+        team = pl.team_config()
+        pisados = [k for k in self.vars if k in team and self.cfg.get("usar_config_equipo", True)
+                   and str(self.cfg[k]) != str(team[k])]
+        if pisados:
+            etiquetas = {k: lab for k, lab, _t in FIELDS}
+            lista = "\n".join(f"• {etiquetas.get(k, k)}: {self.cfg[k]}  (equipo: {team[k]})" for k in pisados)
+            if messagebox.askyesno(
+                    "Configuración del equipo",
+                    "Estos valores los fija la configuración del equipo, y al volver a abrir la app "
+                    f"volverían a los del equipo:\n\n{lista}\n\n¿Usar TUS valores en esta PC? "
+                    "(se desactiva «Usar la configuración del equipo» solo aquí)"):
+                self.cfg["usar_config_equipo"] = False
+                if "usar_config_equipo" in self.vars:
+                    self.vars["usar_config_equipo"][0].set(False)
         pl.save_config(CONFIG_PATH, self.cfg)
         running = self.runner and self.btn_stop["state"] == "normal"
         messagebox.showinfo("Configuración", "Guardado." + (

@@ -40,6 +40,9 @@ DEFAULT_CONFIG = {
     "args_extra_extraer": "",
     "args_extra_sfm": "",
     "args_extra_train": "",
+    "max_splats": 0,                 # --cap-max (0 = lo que decida Spirula)
+    "sh_grado": "",                  # --sh-degree 0..3 ("" = lo que decida Spirula)
+    "correccion_calibracion": "",    # --calib-correction off|basic|accurate ("" = Spirula decide)
     "paralelo_extraer": 2,
     "paralelo_sfm": 2,
     "paralelo_entrenar": 1,         # medido: 1 a la vez es ~40% más rápido que 3 (la GPU se satura)
@@ -76,6 +79,27 @@ def team_config():
         return {k: v for k, v in t.items() if not k.startswith("_") and k in DEFAULT_CONFIG}
     except (OSError, ValueError):
         return {}
+
+
+def train_quality_args(cfg, extra=()):
+    """Opciones de calidad del entrenamiento de Spirula (receta del especialista): máximo de
+    splats (--cap-max), grado SH (--sh-degree) y corrección de calibración (--calib-correction).
+    No se repite una opción que ya esté en 'Args extra: train'."""
+    out = []
+    ex = set(extra)
+    try:
+        cap = int(float(cfg.get("max_splats") or 0))
+    except (TypeError, ValueError):
+        cap = 0
+    if cap > 0 and "--cap-max" not in ex:
+        out += ["--cap-max", str(cap)]
+    sh = str(cfg.get("sh_grado", "")).strip()
+    if sh in ("0", "1", "2", "3") and "--sh-degree" not in ex:
+        out += ["--sh-degree", sh]
+    cc = str(cfg.get("correccion_calibracion", "")).strip().lower()
+    if cc in ("off", "basic", "accurate") and "--calib-correction" not in ex:
+        out += ["--calib-correction", cc]
+    return out
 
 
 def load_config(path: str) -> dict:
@@ -667,19 +691,30 @@ class Runner:
                             "--disable-viewer", "1",
                             "--output-dir-prefix", runs, "--output-dir-name", "modelo"]
                     extra = cfg["args_extra_train"].split()
+                    calidad = train_quality_args(cfg, extra)
+                    if calidad:
+                        self.log(f"{job.name}: entrenamiento con " + " ".join(calidad))
                     perf = []
                     if cfg.get("entrenar_cache_ram", True) and "--cache-images" not in extra \
                             and ram_fits_images(img, int(cfg["divisor_resolucion"])):
                         perf = ["--cache-images", "cpu"]
                     gpu_note(logf)
                     try:
-                        self._run(job, args + perf + extra, logf)
+                        self._run(job, args + calidad + perf + extra, logf)
                     except RuntimeError:
-                        if not perf or time.time() - t > 120 or self.cancel.is_set():
+                        if not (perf or calidad) or time.time() - t > 120 or self.cancel.is_set():
                             raise
-                        # esta versión de Spirula no acepta la opción: se repite sin ella
+                        # esta versión de Spirula no acepta alguna opción: se repite sin ella
+                        tail = " ".join(getattr(job, "last_tail", []) or []).lower()
+                        if calidad and any(w in tail for w in ("unexpected", "unrecognized", "unknown",
+                                                               "invalid value", "no reconoc")):
+                            self.log(f"AVISO {job.name}: esta versión de Spirula no acepta "
+                                     f"{' '.join(calidad)}; se entrena sin esas opciones")
+                            calidad = []
+                        else:
+                            perf = []
                         shutil.rmtree(runs, ignore_errors=True)
-                        self._run(job, args + extra, logf)
+                        self._run(job, args + calidad + perf + extra, logf)
                     job.times["entrenar"] = time.time() - t
                     mark("entrenar")
                     old = os.path.join(self.clean_dir, job.name + ".ply")

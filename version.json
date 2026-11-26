@@ -1,17 +1,17 @@
 {
- "version": "2026.11.25.14",
- "fecha": "2026-11-25 21:11",
- "notas": "Carpetas por PNG: cada PNG queda SOLO dentro de su carpeta «4.nombre» (ya no queda una copia suelta afuera). Las carpetas actuales se ordenan solas al abrir «2. Revisar». Los .ply siguen donde los tengas (afuera o en otra carpeta). Desactivando «Cada PNG en su carpeta» en Configuración vuelven a quedar sueltos.",
+ "version": "2026.11.26.1",
+ "fecha": "2026-11-26 12:27",
+ "notas": "Configuración: nuevas opciones de entrenamiento de Spirula (receta del especialista): Máximo de splats (--cap-max), Grado SH 0-3 (--sh-degree) y Corrección de calibración off/basic/accurate (--calib-correction). Nuevos perfiles «Especialista Spirula (30k · 1/2 · 2M splats · SH0 · accurate)» y «+ detalle (SH3)». Si guardas valores que la configuración del equipo pisaría, la app te avisa y te deja usar los tuyos.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "45ffde658ebc5f8bce605006e9016d6c13356cd8b1f877ef3d60ffd2be954ef8",
+  "app.py": "0af75475e73817ecbc165b088ca6ff9500931930071b6c06233b70169d0bef42",
   "supersplat.py": "51a33ed48578072a88951a9c784308176d441a1b37c46105c0dc5081a85f0f14",
-  "pipeline.py": "033d02113dedb62224f5dde423a942781a8a9afec0f61614419477854b4672df",
+  "pipeline.py": "8c721c80d71438de913cce825c80f49caa931745240a93b15a42a895dd660c6b",
   "render_ortho.py": "7e16abed098021d34b8c37b1c46e50a013db9632616fd295b734d35361421cc8",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "22d484e6076238d0bcf76c94ff3872be08ee3847f8b67184a007e7af581e502c",
-  "app_version.py": "b276def46ebe1801ebe76fc9fa94f1d332e0e2f6363fa17bf1b28eeb7bcf6110",
+  "app_version.py": "d56eeb28560e6e067d125763a46c561933927acb5364510e8d9eacdd0f066234",
   "cubo.py": "22417de45bb88d046edce984c31ea2696ec142d56ef46d2061e7e86a0537fdce",
   "alinear.py": "e05331441eb02286324b67bbdf2bea08d4fce81108219def0748a440c9433136",
   "equipo.json": "f0682f5dbbdef3b3bc59f6db15b77adf04e8763484b7eac1d1be1bf89b81f0ff"

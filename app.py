@@ -1549,8 +1549,21 @@ class App(tk.Tk):
             if py.lower().endswith("python.exe") and os.path.isfile(py[:-10] + "pythonw.exe"):
                 py = py[:-10] + "pythonw.exe"
             cmd = [py, launcher]
+        env = dict(os.environ)
+        if FROZEN:
+            # El .exe nuevo debe extraerse en su propia carpeta temporal: si hereda
+            # la del proceso actual (que se borra al cerrar) falla «DLL load failed
+            # while importing _tkinter».
+            for k in list(env):
+                if k.startswith("_PYI") or k.startswith("_MEI") or k == "TCL_LIBRARY" \
+                        or k == "TK_LIBRARY":
+                    env.pop(k, None)
+            env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
         try:
-            subprocess.Popen(cmd, cwd=APP_DIR, close_fds=True)
+            flags = 0
+            if os.name == "nt":
+                flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | NEW_PROCESS_GROUP
+            subprocess.Popen(cmd, cwd=APP_DIR, close_fds=True, env=env, creationflags=flags)
         except OSError as e:
             messagebox.showerror("Reiniciar", f"No pude reiniciar: {e}\nÁbrelo de nuevo a mano.")
             return

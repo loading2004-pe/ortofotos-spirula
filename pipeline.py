@@ -1054,6 +1054,8 @@ def _aligned_cams(ply_path, orig_ply, cc, uu, store, log=None):
         with _ALIGN_LOCK:      # usa bastante memoria: de a uno
             a = cubo._opaque_pts(read_splat_ply(ply_path), 60_000)
             b = cubo._opaque_pts(read_splat_ply(orig_ply), 300_000)
+            if log:
+                log("@alineando con su modelo original de Spirula (solo la 1.ª vez, hasta 1 min)…")
             res = alinear.register(a, b, log=log)
         if res and cpath:
             try:
@@ -1150,9 +1152,15 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
         if prev.get("ambiente"):    # antes se tomó (por error) como parte de un ambiente
             prev = {}
         flip, rot = bool(prev.get("flip")), int(prev.get("rot", 0))
-        on_item(name, "renderizando", "")
+        on_item(name, "renderizando", "buscando las cámaras de Spirula…")
+
+        def _stage(msg):
+            if isinstance(msg, str) and msg.startswith("@"):
+                on_item(name, "renderizando", msg[1:])
         try:
-            cams, ups, origen = find_cams(name, ply, cfg, root, store)
+            cams, ups, origen = find_cams(name, ply, cfg, root, store, log=_stage)
+            on_item(name, "renderizando", f"renderizando a {int(cfg['render_lado_largo_px'])} px "
+                    + ("con las cámaras de Spirula…" if cams is not None else "(lado y vertical automáticos)…"))
             if prev and not prev.get("ambiente") and not prev.get("cubo") and (
                     (cams is None and prev.get("vertical", 1) < 3)
                     or ("con_camaras" in prev and bool(prev["con_camaras"]) != (cams is not None))):

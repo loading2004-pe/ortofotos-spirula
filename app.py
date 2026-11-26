@@ -143,6 +143,41 @@ FIELDS = [  # (clave, etiqueta, tipo)
 ]
 
 
+def make_flow(frame, padx=4, pady=3):
+    """Convierte una fila de botones (pack side=left) en una fila que se reacomoda: si la ventana
+    es angosta, lo que no cabe pasa a la fila siguiente en vez de quedar oculto."""
+    kids = [w for w in frame.pack_slaves()]
+    if not kids:
+        return
+    for w in kids:
+        w.pack_forget()
+    frame.pack_propagate(False)
+    st = {"key": None}
+
+    def relayout(_e=None):
+        W = frame.winfo_width()
+        if W <= 1:
+            W = max(400, frame.winfo_toplevel().winfo_width() - 60)
+        key = (W, tuple(w.winfo_reqwidth() for w in kids))
+        if key == st["key"]:
+            return
+        st["key"] = key
+        x = y = rowh = 0
+        for w in kids:
+            ww, hh = w.winfo_reqwidth(), w.winfo_reqheight()
+            if x and x + ww > W:
+                x, y, rowh = 0, y + rowh + pady, 0
+            w.place(x=x, y=y)
+            x += ww + padx
+            rowh = max(rowh, hh)
+        h = y + rowh
+        if int(frame.cget("height") or 0) != h:
+            frame.configure(height=h)
+    frame.bind("<Configure>", relayout, add="+")
+    frame.after_idle(relayout)
+    frame.after(300, relayout)
+
+
 class App(tk.Tk):
     def __init__(self, start_root=None):
         super().__init__()
@@ -167,6 +202,7 @@ class App(tk.Tk):
         st.configure("Treeview", rowheight=int(22 * k))
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{int(sw * 0.8)}x{int(sh * 0.82)}+{int(sw * 0.1)}+{int(sh * 0.05)}")
+        self.minsize(720, 460)
         self.cfg = pl.load_config(CONFIG_PATH)
         found = find_spirula(self.cfg.get("spirula_exe", ""))
         if found and found != self.cfg.get("spirula_exe"):
@@ -220,10 +256,65 @@ class App(tk.Tk):
             pass
         messagebox.showerror("Error", f"{val}\n\n(detalle en errores.log)")
 
+    def _tab(self, nb, text, padding=8):
+        """Pestaña que se adapta al tamaño de la ventana: en pantalla grande lo de adentro llena
+        todo el espacio; si la ventana es chica aparece una barra de desplazamiento y nada queda
+        fuera de la vista. Devuelve (marco interior, pestaña)."""
+        holder = ttk.Frame(nb)
+        nb.add(holder, text=text)
+        cv = tk.Canvas(holder, highlightthickness=0, bd=0)
+        sb = ttk.Scrollbar(holder, orient="vertical", command=cv.yview)
+        cv.configure(yscrollcommand=sb.set)
+        cv.pack(side="left", fill="both", expand=True)
+        outer = ttk.Frame(cv, padding=padding)
+        win = cv.create_window((0, 0), window=outer, anchor="nw")
+        st = {"sb": False, "key": None}
+
+        def fit(_e=None):
+            W, H = cv.winfo_width(), cv.winfo_height()
+            if W < 2 or H < 2:
+                return
+            req = outer.winfo_reqheight()
+            key = (W, H, req)
+            if key == st["key"]:
+                return
+            st["key"] = key
+            h = max(H, req)
+            cv.itemconfigure(win, width=W, height=h)
+            cv.configure(scrollregion=(0, 0, W, h))
+            need = req > H + 2
+            if need != st["sb"]:
+                st["sb"] = need
+                if need:
+                    sb.pack(side="right", fill="y", before=cv)
+                else:
+                    sb.pack_forget()
+                    cv.yview_moveto(0)
+
+        def tick():
+            try:
+                fit()
+                holder.after(400, tick)
+            except tk.TclError:
+                pass
+        cv.bind("<Configure>", fit)
+        holder.after(400, tick)
+
+        def wheel(e):
+            try:
+                if self.nb.select() != str(holder) or not st["sb"]:
+                    return
+                if e.widget.winfo_class() in ("Listbox", "Treeview", "Text", "TCombobox"):
+                    return
+            except (tk.TclError, AttributeError):
+                return
+            cv.yview_scroll(int(-e.delta / 120) or (-1 if e.delta > 0 else 1), "units")
+        self.bind_all("<MouseWheel>", wheel, add="+")
+        return outer, holder
+
     # ------------------------------------------------------------- Procesar
     def _build_process(self, nb):
-        f = ttk.Frame(nb, padding=8)
-        nb.add(f, text="1. Procesar")
+        f, _tab = self._tab(nb, "1. Procesar")
         top = ttk.Frame(f)
         top.pack(fill="x")
         ttk.Label(top, text="Carpeta raíz:").pack(side="left")
@@ -241,6 +332,7 @@ class App(tk.Tk):
         self.btn_stop = ttk.Button(top, text="■ Detener ya", command=self.do_stop, state="disabled")
         self.btn_stop.pack(side="left", padx=4)
         ttk.Button(top, text="Limpiar lista", command=self.clear_process).pack(side="left")
+        make_flow(top)
 
         self.summary = ttk.Label(f, text="Elige la carpeta raíz y pulsa Escanear.")
         self.summary.pack(fill="x", pady=6)
@@ -248,7 +340,7 @@ class App(tk.Tk):
         pan = ttk.PanedWindow(f, orient="vertical")
         pan.pack(fill="both", expand=True)
         cols = ("videos", "estado", "detalle")
-        tv = ttk.Treeview(pan, columns=cols, show="tree headings", selectmode="extended")
+        tv = ttk.Treeview(pan, columns=cols, show="tree headings", selectmode="extended", height=8)
         tv.heading("#0", text="Nombre")
         tv.heading("videos", text="Videos / fotos")
         tv.heading("estado", text="Estado")
@@ -513,8 +605,9 @@ class App(tk.Tk):
                     errs = getattr(self, "_link_errors", [])
                     self._link_errors = []
                     ok = self._link_done - len(errs)
-                    self.link_lbl.config(text=f"Listo: {ok} ortofoto(s) en {data}"
-                                              + (f" · {len(errs)} con error" if errs else ""))
+                    self._prog_end(f"✓ Listo: {ok} ortofoto(s) en {data}"
+                                   + (f" · {len(errs)} con error" if errs else "")
+                                   + f" · {self._fmt_t(time.time() - getattr(self, '_prog_t0', time.time()))}")
                     self.bell()
                     if errs:
                         messagebox.showwarning("Renderizar", "Estos no se pudieron renderizar:\n\n"
@@ -525,14 +618,12 @@ class App(tk.Tk):
 
     # -------------------------------------------------------------- Revisar
     def _build_review(self, nb):
-        f = ttk.Frame(nb, padding=8)
-        nb.add(f, text="2. Revisar")
-        self.review_tab = f
+        f, self.review_tab = self._tab(nb, "2. Revisar")
         left = ttk.Frame(f)
         left.pack(side="left", fill="y")
         ttk.Button(left, text="Recargar", command=self.load_review).pack(fill="x")
         ttk.Button(left, text="Limpiar lista", command=self.clear_review).pack(fill="x", pady=(4, 0))
-        self.lst = tk.Listbox(left, width=34, font=("Consolas", 10), activestyle="none")
+        self.lst = tk.Listbox(left, width=30, font=("Consolas", 10), activestyle="none", height=10)
         self.lst.pack(fill="y", expand=True, pady=4)
         self.lst.bind("<<ListboxSelect>>", lambda e: self._show_current())
         self.rev_count = ttk.Label(left, text="")
@@ -550,6 +641,7 @@ class App(tk.Tk):
                    command=self._review_default).pack(side="left", padx=4)
         ttk.Button(top, text="Abrir carpeta", command=lambda: open_path(self._results_dir())
                    if os.path.isdir(self._results_dir()) else None).pack(side="left")
+        make_flow(top)
         top = ttk.Frame(right)          # 2.ª fila de opciones (visible también en pantallas chicas)
         top.pack(fill="x", pady=(0, 4))
         self._modo_widget(top)
@@ -565,6 +657,7 @@ class App(tk.Tk):
         ep.pack(side="left", padx=2)
         ep.bind("<Return>", lambda e: self._set_prefijo())
         ep.bind("<FocusOut>", lambda e: self._set_prefijo())
+        make_flow(top)
         bar = ttk.Frame(right)
         bar.pack(fill="x")
         ttk.Button(bar, text="← Anterior", command=lambda: self._step(-1)).pack(side="left")
@@ -572,7 +665,8 @@ class App(tk.Tk):
         ttk.Button(bar, text="✗ Mal  [M]", command=lambda: self._mark(True)).pack(side="left")
         ttk.Button(bar, text="Siguiente →", command=lambda: self._step(1)).pack(side="left", padx=4)
         ttk.Button(bar, text="Abrir en visor", command=self._open_current).pack(side="left")
-        ttk.Button(bar, text="Reprocesar marcados ✗", command=self._reprocess_bad).pack(side="right")
+        ttk.Button(bar, text="Reprocesar marcados ✗", command=self._reprocess_bad).pack(side="left", padx=(12, 0))
+        make_flow(bar)
         bar2 = ttk.Frame(right)
         bar2.pack(fill="x", pady=(4, 0))
         ttk.Label(bar2, text="SuperSplat:").pack(side="left")
@@ -585,8 +679,30 @@ class App(tk.Tk):
         ttk.Button(bar2, text="↔ Voltear vista", command=lambda: self._adjust(flip=True)).pack(side="left")
         ttk.Button(bar2, text="⟳ Girar 90°", command=lambda: self._adjust(rot=1)).pack(side="left", padx=4)
         ttk.Button(bar2, text="🎯 Alinear / visor", command=self._open_cube_viewer).pack(side="left")
+        make_flow(bar2)
         self.link_lbl = ttk.Label(right, text="", foreground="#555")
         self.link_lbl.pack(anchor="w", pady=(4, 0))
+        # panel de avance del render (visible solo mientras renderiza)
+        self.prog_fr = tk.Frame(right, bg="#eef4fb", highlightthickness=1, highlightbackground="#b8cde6")
+        st_ = ttk.Style(self)
+        st_.configure("Orto.Horizontal.TProgressbar", thickness=18)
+        hdr = tk.Frame(self.prog_fr, bg="#eef4fb")
+        hdr.pack(fill="x", padx=8, pady=(6, 2))
+        self.prog_title = tk.Label(hdr, text="", bg="#eef4fb", fg="#123", font=("Segoe UI", 10, "bold"))
+        self.prog_title.pack(side="left")
+        self.prog_pct = tk.Label(hdr, text="", bg="#eef4fb", fg="#1f5fa8", font=("Segoe UI", 10, "bold"))
+        self.prog_pct.pack(side="right")
+        self.prog_bar = ttk.Progressbar(self.prog_fr, mode="determinate", maximum=1000,
+                                        style="Orto.Horizontal.TProgressbar")
+        self.prog_bar.pack(fill="x", padx=8)
+        self.prog_now = tk.Label(self.prog_fr, text="", bg="#eef4fb", fg="#333", justify="left",
+                                 anchor="w", font=("Segoe UI", 9))
+        self.prog_now.pack(fill="x", padx=8, pady=(4, 0))
+        self.prog_time = tk.Label(self.prog_fr, text="", bg="#eef4fb", fg="#666", anchor="w",
+                                  font=("Segoe UI", 9))
+        self.prog_time.pack(fill="x", padx=8, pady=(0, 6))
+        self.prog_fr.bind("<Configure>", lambda e: self.prog_now.config(wraplength=max(200, e.width - 20)))
+        self._prog_anchor = self.link_lbl
         nm_row = ttk.Frame(right)
         nm_row.pack(fill="x", pady=4)
         self.rev_name = ttk.Label(nm_row, text="", font=("Segoe UI", 12, "bold"))
@@ -897,8 +1013,7 @@ class App(tk.Tk):
         self._linked_busy = True
         out = os.path.join(folder, "ortofotos_limpias")
         cfg = dict(self.cfg)
-        self._link_total, self._link_done = len(items), 0
-        self.link_lbl.config(text=f"Renderizando 0/{len(items)}…")
+        self._prog_start(len(items), f"Renderizando {len(items)} ortofoto(s)")
         self.q.put(("log", f"Revisar: renderizando {len(items)} .ply limpios de {folder}"))
 
         full = {n for _p, n in self._plys_of(folder)} == {n for _p, n in items}
@@ -914,15 +1029,75 @@ class App(tk.Tk):
             self.q.put(("linkfin", out))
         threading.Thread(target=work, daemon=True).start()
 
+    # -------- panel de avance
+    def _prog_start(self, total, title="Renderizando ortofotos"):
+        self._link_total, self._link_done = total, 0
+        self._prog_t0 = time.time()
+        self._prog_active = {}          # nombre -> [etapa, inicio]
+        self._prog_times = []
+        self._prog_last = ""
+        self._prog_title_txt = title
+        self.link_lbl.config(text="")
+        self.prog_bar["value"] = 0
+        self.prog_fr.pack(fill="x", pady=(4, 2), after=self._prog_anchor)
+        self._prog_tick()
+
+    @staticmethod
+    def _fmt_t(sec):
+        sec = int(max(0, sec))
+        return f"{sec // 60}:{sec % 60:02d}" if sec >= 60 else f"{sec} s"
+
+    def _prog_tick(self):
+        if not self.prog_fr.winfo_ismapped() and not self._linked_busy:
+            return
+        now = time.time()
+        tot = max(1, self._link_total)
+        avg = (sum(self._prog_times) / len(self._prog_times)) if self._prog_times else 40.0
+        part = sum(min(0.95, (now - t0) / max(avg, 1)) for _e, t0 in self._prog_active.values())
+        frac = min(1.0, (self._link_done + part) / tot)
+        self.prog_bar["value"] = int(frac * 1000)
+        self.prog_pct.config(text=f"{int(frac * 100)} %")
+        self.prog_title.config(text=f"{self._prog_title_txt} · {self._link_done} de {tot} listas")
+        if self._prog_active:
+            lines = [f"▶ {n}: {e} ({self._fmt_t(now - t0)})" for n, (e, t0) in self._prog_active.items()]
+        else:
+            lines = ["▶ preparando…" if self._link_done < tot else "✓ terminado"]
+        if self._prog_last:
+            lines.append("✓ última: " + self._prog_last)
+        self.prog_now.config(text="\n".join(lines))
+        par = max(1, len(self._prog_active) or int(self.cfg.get("paralelo_render", 2)))
+        left = (tot - self._link_done - part) * avg / par
+        eta = (f" · faltan ≈ {self._fmt_t(left)}" if self._prog_times and self._link_done < tot
+               else (" · calculando el tiempo restante…" if self._link_done < tot else ""))
+        self.prog_time.config(text=f"Tiempo: {self._fmt_t(now - self._prog_t0)}{eta}")
+        if self._linked_busy:
+            self.after(500, self._prog_tick)
+
+    def _prog_end(self, text):
+        self.prog_fr.pack_forget()
+        self.link_lbl.config(text=text)
+
     def _on_link_item(self, name, st, det):
+        act = getattr(self, "_prog_active", None)
+        if act is None:
+            self._prog_active = act = {}
+            self._prog_times = []
+        if st == "renderizando":
+            if name in act:
+                act[name][0] = det or act[name][0]
+            else:
+                act[name] = [det or "preparando…", time.time()]
         if st in ("listo", "error"):
             self._link_done += 1
+            if name in act:
+                self._prog_times.append(time.time() - act.pop(name)[1])
+            short = det.split("  ⚠")[0]
+            self._prog_last = f"{name} ({'error' if st == 'error' else short})"
         if st == "error":
             self._link_errors = getattr(self, "_link_errors", []) + [f"{name}: {det}"]
-        self.link_lbl.config(text=f"Renderizando {self._link_done}/{self._link_total} · {name}: {st} {det}"
-                             if self._link_done < self._link_total
-                             else f"Listo: {self._link_total} ortofoto(s) · última: {name} {det}")
-        self.q.put(("log", f"{time.strftime('%H:%M:%S')} {name}: {st} {det}"))
+        if st != "renderizando" or det:
+            self.q.put(("log", f"{time.strftime('%H:%M:%S')} {name}: "
+                               + (det if st == "renderizando" else f"{st} {det}")))
 
     MODOS = (("normal", "Normal (puertas y ventanas)"), ("exterior", "Exterior · 6 caras"),
              ("interior", "Interior · 6 caras"), ("auto", "Detectar solo"))
@@ -1057,7 +1232,7 @@ class App(tk.Tk):
             messagebox.showinfo("Ajustar", "Espera a que termine el render en marcha.")
             return
         self._linked_busy = True
-        self.link_lbl.config(text=f"Re-renderizando {name}…")
+        self._prog_start(1, f"Re-renderizando {name}")
         cfg = dict(self.cfg)
         root = self.root_var.get() or None
 
@@ -1065,7 +1240,6 @@ class App(tk.Tk):
             pl.render_linked([(ply, name)], d, cfg, root=root, store=self._cam_store(),
                              on_item=lambda n, st, det: self.q.put(("link", (n, st, det))))
             self.q.put(("linkfin", d))
-        self._link_total, self._link_done = 1, 0
         threading.Thread(target=work, daemon=True).start()
 
     # ---------------------------------------------- SuperSplat (.ply limpios)
@@ -1201,8 +1375,7 @@ class App(tk.Tk):
 
     # ------------------------------------------- Convertir nube (CloudCompare / ReCap)
     def _build_convert(self, nb):
-        f = ttk.Frame(nb, padding=16)
-        nb.add(f, text="3. Convertir nube")
+        f, _tab = self._tab(nb, "3. Convertir nube", padding=16)
         self._conv_src, self._conv_clouds, self._conv_items = [], [], []
         self._conv_busy = False
         big = ttk.Style(self)
@@ -1210,14 +1383,16 @@ class App(tk.Tk):
 
         ttk.Label(f, text="Limpiar un modelo en CloudCompare o ReCap", font=("Segoe UI", 13, "bold")
                   ).pack(anchor="w")
-        ttk.Label(f, foreground="#444", justify="left", text=(
+        _inst = ttk.Label(f, foreground="#444", justify="left", text=(
             "1.  Elige a qué programa lo pasas y selecciona el .ply.\n"
             "2.  CloudCompare: abre el .ply, borra lo que sobra y guárdalo (.ply o .las).\n"
             "     ReCap: importa el .pts, borra lo que sobra y expórtalo como .pts.\n"
             "     No muevas ni gires la nube; solo borra.\n"
             "3.  Pulsa  «Traer de vuelta a .ply»  y elige lo que guardaste. La app reconoce sola de qué "
             "programa viene y busca el modelo original: queda un .ply listo para Spirula, con todos sus datos.")
-                  ).pack(anchor="w", pady=(6, 14))
+                  )
+        _inst.pack(anchor="w", fill="x", pady=(6, 14))
+        _inst.bind("<Configure>", lambda e: _inst.config(wraplength=max(300, e.width - 10)))
 
         row = ttk.Frame(f)
         row.pack(anchor="w")
@@ -1231,6 +1406,8 @@ class App(tk.Tk):
                                           state="disabled")
         self.btn_conv_render.pack(side="left", padx=(12, 0))
         ttk.Button(row, text="Abrir carpeta", command=self._conv_open_out).pack(side="left", padx=6)
+        row.pack_configure(fill="x")
+        make_flow(row, padx=8)
 
         # ---- opciones avanzadas (ocultas)
         self.conv_fmt = {"las": tk.BooleanVar(value=False)}

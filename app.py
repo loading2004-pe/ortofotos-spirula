@@ -391,8 +391,7 @@ class App(tk.Tk):
         self.tv.delete(*self.tv.get_children())
         res = self.cfg["carpeta_resultados"] or os.path.join(root, "resultados")
         for j in rep.jobs:
-            done = os.path.exists(os.path.join(res, j.name + ".png")) or \
-                os.path.exists(os.path.join(res, "x_" + j.name + ".png"))
+            done = pl.png_path(res, j.name, self.cfg) is not None
             j.status = "ya procesado" if done else "pendiente"
             self.tv.insert("", "end", iid=j.name, text=j.name,
                            values=(media_txt(j), j.status, os.path.relpath(j.folder, root)))
@@ -503,13 +502,13 @@ class App(tk.Tk):
             except OSError:
                 pass
         res = self.cfg["carpeta_resultados"] or os.path.join(root, "resultados")
-        for pre in ("", "x_"):
-            png = os.path.join(res, pre + name + ".png")
-            if os.path.isfile(png):
+        for _k in range(2):
+            png = pl.png_path(res, name, self.cfg)
+            if png:
                 try:
                     old_dir = os.path.join(res, "anteriores")
                     os.makedirs(old_dir, exist_ok=True)
-                    os.replace(png, os.path.join(old_dir, pre + name + ".png"))
+                    os.replace(png, os.path.join(old_dir, os.path.basename(png)))
                 except OSError:
                     pass
         self.q.put(("log", f"{name}: se rehará desde las poses con la configuración actual"))
@@ -750,7 +749,7 @@ class App(tk.Tk):
         self.review_dir = None          # None = resultados de "1. Procesar"
         last = self.cfg.get("ultima_revision") or ""
         try:                            # al abrir, 'Revisar' vuelve a la última carpeta revisada
-            if last and os.path.isdir(last) and any(f.lower().endswith(".png") for f in os.listdir(last)) \
+            if last and os.path.isdir(last) and pl.list_pngs(last, self.cfg) \
                     and os.path.normcase(os.path.abspath(last)) != \
                     os.path.normcase(os.path.abspath(self._process_results_dir())):
                 self.review_dir = last
@@ -788,11 +787,11 @@ class App(tk.Tk):
                     pass
             return self.review_dir
         d = self._process_results_dir()
-        has = os.path.isdir(d) and any(f.lower().endswith(".png") for f in os.listdir(d))
+        has = bool(pl.list_pngs(d, self.cfg))
         if not has:   # sin resultados de '1. Procesar': la última carpeta revisada o la de .ply limpios
             for alt in (self.cfg.get("ultima_revision", ""),
                         os.path.join(self.cfg.get("carpeta_ply_limpios", "") or "", "ortofotos_limpias")):
-                if alt and os.path.isdir(alt) and any(f.lower().endswith(".png") for f in os.listdir(alt)):
+                if alt and os.path.isdir(alt) and pl.list_pngs(alt, self.cfg):
                     return alt
         return d
 
@@ -837,20 +836,33 @@ class App(tk.Tk):
         self.q.put(("log", f"Carpetas por PNG: prefijo «{v}» (ej. {v}nombre\\nombre.png)"))
 
     def _sync_folders(self, d=None):
+        """Pasa los PNG sueltos a su carpeta «4.nombre» y actualiza la lista (mismas imágenes)."""
         d = d or self._results_dir()
-        cfg = dict(self.cfg)
-        threading.Thread(target=lambda: pl.sync_png_folders(d, cfg), daemon=True).start()
+        try:
+            pl.sync_png_folders(d, dict(self.cfg))
+        except Exception as e:
+            self.q.put(("log", f"Carpetas por PNG: {e}"))
+            return
+        if os.path.normcase(os.path.abspath(d)) == os.path.normcase(os.path.abspath(self._results_dir())):
+            i = self._cur()
+            cur = os.path.basename(self.files[i]) if i is not None and i < len(self.files) else None
+            self.files = pl.list_pngs(d, self.cfg)
+            names = [os.path.basename(f) for f in self.files]
+            self._refresh_list(keep=names.index(cur) if cur in names else None)
+            self._show_current()
 
     def load_review(self):
         self._review_cleared = False
         d = self._results_dir()
-        self._sync_folders(d)
+        try:        # los PNG pasan a su carpeta «4.nombre» antes de listarlos
+            pl.sync_png_folders(d, dict(self.cfg))
+        except Exception as e:
+            self.q.put(("log", f"Carpetas por PNG: {e}"))
         self.rev_dir_lbl.config(text=d if len(d) <= 70 else "…" + d[-69:])   # rutas largas no empujan los botones
         lk = self.cfg.get("carpeta_ply_limpios", "")
         if lk and not self._linked_busy:
             self.link_lbl.config(text=f"Carpeta de .ply limpios vinculada: {lk}")
-        self.files = sorted(os.path.join(d, f) for f in os.listdir(d)
-                            if f.lower().endswith((".png", ".jpg", ".tif"))) if os.path.isdir(d) else []
+        self.files = pl.list_pngs(d, self.cfg)
         self._refresh_list()
         if self.files:
             self.lst.selection_set(0)
@@ -873,7 +885,7 @@ class App(tk.Tk):
             _e, cdir = pl.side_dirs(self.cfg, self.root_var.get())
             if os.path.isdir(cdir):
                 limpios = {os.path.splitext(f)[0].lower() for f in os.listdir(cdir)}
-        self._avisos = pl.read_warnings(os.path.dirname(self.files[0])) if self.files else {}
+        self._avisos = pl.read_warnings(self._results_dir()) if self.files else {}
         nav = 0
         for p in self.files:
             n = os.path.basename(p)
@@ -927,14 +939,15 @@ class App(tk.Tk):
         return ply if ply and os.path.isfile(ply) else None
 
     def _update_location(self, png, name):
-        d = os.path.dirname(os.path.abspath(png))
-        pre = str(self.cfg.get("prefijo_carpeta_png", "") or "")
-        carpeta = os.path.join(d, pre + name)
+        d = self._results_dir()
+        carpeta = os.path.dirname(os.path.abspath(png))
+        if os.path.normcase(carpeta) == os.path.normcase(os.path.abspath(d)):
+            carpeta = ""
         try:
             ply = self._find_ply(name, d)
         except Exception:
             ply = None
-        self._loc = {"png": png, "carpeta": carpeta if os.path.isdir(carpeta) else None, "ply": ply,
+        self._loc = {"png": png, "carpeta": carpeta if carpeta and os.path.isdir(carpeta) else None, "ply": ply,
                      "todas": d, "name": name}
         txt = f"📁 {os.path.normpath(png)}"
         if self._loc["carpeta"]:
@@ -1244,7 +1257,7 @@ class App(tk.Tk):
         import cubo
         fname = os.path.basename(p)
         name = os.path.splitext(fname[2:] if fname.lower().startswith("x_") else fname)[0]
-        return cubo.faces_dir(os.path.dirname(p), name)
+        return cubo.faces_dir(self._results_dir(), name)
 
     def _update_faces_link(self, p):
         d = self._faces_dir_for(p)
@@ -1457,10 +1470,10 @@ class App(tk.Tk):
                         stt = os.stat(p_)
                     except OSError:
                         continue
-                    png = os.path.join(d, "ortofotos_limpias", n + ".png")
+                    png = pl.png_path(os.path.join(d, "ortofotos_limpias"), n, self.cfg) or ""
                     if os.path.isfile(png) and os.path.getmtime(png) >= stt.st_mtime:
                         est, tag = "✓ ortofoto lista", "listo"
-                    elif os.path.isfile(png):
+                    elif png and os.path.isfile(png):
                         est, tag = "editado después de la ortofoto → renderizar", "nuevo"
                     else:
                         est, tag = "nuevo → renderizar", "nuevo"

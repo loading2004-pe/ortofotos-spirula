@@ -197,18 +197,19 @@ def prune_stale(out_dir, keep_names, cfg=None):
     old = os.path.join(out_dir, "anteriores")
     moved = []
     man = read_manifest(out_dir)
-    for f in os.listdir(out_dir):
-        stem, ext = os.path.splitext(f)
-        if ext.lower() != ".png":
+    for fp in list_pngs(out_dir, cfg):
+        f = os.path.basename(fp)
+        if not f.lower().endswith(".png"):
             continue
-        clean = stem[2:] if stem.lower().startswith("x_") else stem
+        clean = _png_clean(f)
         if clean.lower() in keep:
             continue
         os.makedirs(old, exist_ok=True)
-        dst = os.path.join(old, f)
-        if os.path.exists(dst):
-            os.remove(dst)
-        os.replace(os.path.join(out_dir, f), dst)
+        if os.path.dirname(fp) == out_dir or os.path.dirname(fp) == os.path.abspath(out_dir):
+            dst = os.path.join(old, f)
+            if os.path.exists(dst):
+                os.remove(dst)
+            os.replace(fp, dst)
         pre = str((cfg or {}).get("prefijo_carpeta_png", "") or "")
         for dd in (pre + clean, clean + " (6 caras)"):
             dpath = os.path.join(out_dir, dd)
@@ -272,14 +273,52 @@ def read_warnings(d):
         return {}
 
 
+def _png_prefix(cfg):
+    return re.sub(r'[<>:"/\\|?*]', "", str((cfg or {}).get("prefijo_carpeta_png", "") or ""))
+
+
+def _png_clean(fname):
+    stem = os.path.splitext(fname)[0]
+    return stem[2:] if stem.lower().startswith("x_") else stem
+
+
+def list_pngs(d, cfg=None):
+    """Rutas de las ortofotos de una carpeta de resultados: sueltas o dentro de su carpeta
+    «<prefijo><nombre>» (donde quedan cuando 'Carpeta por PNG' está activo)."""
+    if not d or not os.path.isdir(d):
+        return []
+    pre = _png_prefix(cfg)
+    out = []
+    for f in sorted(os.listdir(d)):
+        full = os.path.join(d, f)
+        if os.path.isfile(full) and f.lower().endswith((".png", ".jpg", ".tif")):
+            out.append(full)
+        elif os.path.isdir(full) and not f.startswith(".") and f.lower() != "anteriores" \
+                and not f.endswith(" (6 caras)"):
+            for g in os.listdir(full):
+                if g.lower().endswith(".png") and f in (pre + _png_clean(g), _png_clean(g)):
+                    out.append(os.path.join(full, g))
+    return sorted(out, key=lambda x: os.path.basename(x).lower())
+
+
+def png_path(d, name, cfg=None):
+    """Ruta actual de la ortofoto 'name' (suelta o en su carpeta; con o sin x_), o None."""
+    pre = _png_prefix(cfg)
+    for base in (d, os.path.join(d, pre + name), os.path.join(d, name)):
+        for f in (name + ".png", "x_" + name + ".png"):
+            fp = os.path.join(base, f)
+            if os.path.isfile(fp):
+                return fp
+    return None
+
+
 def sync_png_folders(d, cfg, log=None):
-    """Cada PNG de la carpeta queda también dentro de su propia carpeta «<prefijo><nombre>»
-    (p. ej. 4.b12-p3-a/b12-p3-a.png). Es un enlace al mismo archivo (no ocupa espacio extra);
-    si el disco no lo permite, una copia. Si cambia el prefijo, las carpetas se renombran."""
-    if not cfg.get("carpeta_por_png", True) or not d or not os.path.isdir(d):
+    """Con 'Carpeta por PNG' activo, cada PNG queda SOLO dentro de su carpeta «<prefijo><nombre>»
+    (p. ej. 4.b12-p3-a/b12-p3-a.png): se mueve ahí, no queda suelto ni duplicado. Si cambia el
+    prefijo, las carpetas se renombran. Desactivado, los PNG vuelven a quedar sueltos."""
+    if not d or not os.path.isdir(d):
         return 0
-    pre = str(cfg.get("prefijo_carpeta_png", "") or "")
-    pre = re.sub(r'[<>:"/\\|?*]', "", pre)
+    pre = _png_prefix(cfg)
     reg_path = os.path.join(d, ".carpetas_png.json")
     try:
         with open(reg_path, encoding="utf-8") as f:
@@ -287,32 +326,43 @@ def sync_png_folders(d, cfg, log=None):
     except (OSError, ValueError):
         reg = {}
     n = 0
+    if not cfg.get("carpeta_por_png", True):            # sacarlos de sus carpetas
+        for fp in list_pngs(d, dict(cfg, prefijo_carpeta_png=pre)):
+            if os.path.dirname(fp) != os.path.abspath(d) and os.path.dirname(fp) != d:
+                dst = os.path.join(d, os.path.basename(fp))
+                try:
+                    os.replace(fp, dst)
+                    n += 1
+                except OSError as e:
+                    if log:
+                        log(f"{fp}: {e}")
+        return n
+    # carpetas con el prefijo anterior -> prefijo actual
+    for clean, old in list(reg.items()):
+        want = os.path.join(d, pre + clean)
+        if old != os.path.basename(want) and os.path.isdir(os.path.join(d, old)) and not os.path.exists(want):
+            try:
+                os.rename(os.path.join(d, old), want)
+                reg[clean] = os.path.basename(want)
+            except OSError as e:
+                if log:
+                    log(f"carpeta {old}: {e}")
     for f in sorted(os.listdir(d)):
         src = os.path.join(d, f)
         if not f.lower().endswith(".png") or not os.path.isfile(src):
             continue
-        stem = os.path.splitext(f)[0]
-        clean = stem[2:] if stem.lower().startswith("x_") else stem
+        clean = _png_clean(f)
         want = os.path.join(d, pre + clean)
-        old = reg.get(clean)
         try:
-            if old and old != os.path.basename(want) and os.path.isdir(os.path.join(d, old)) \
-                    and not os.path.exists(want):
-                os.rename(os.path.join(d, old), want)          # cambió el prefijo
             os.makedirs(want, exist_ok=True)
-            for g in os.listdir(want):                          # quita el nombre viejo (x_ / sin x_)
-                if g.lower().endswith(".png") and g != f and os.path.splitext(g)[0] in (clean, "x_" + clean):
+            for g in os.listdir(want):                          # quita la versión anterior (x_ / sin x_)
+                if g.lower().endswith(".png") and g != f and _png_clean(g) == clean:
                     os.remove(os.path.join(want, g))
             dst = os.path.join(want, f)
-            if os.path.exists(dst):
-                if os.path.samefile(src, dst):
-                    reg[clean] = os.path.basename(want)
-                    continue
-                os.remove(dst)
-            try:
-                os.link(src, dst)
-            except OSError:
-                shutil.copy2(src, dst)
+            if os.path.exists(dst) and os.path.samefile(src, dst):
+                os.remove(src)                                  # era el enlace de versiones anteriores
+            else:
+                os.replace(src, dst)
             reg[clean] = os.path.basename(want)
             n += 1
         except OSError as e:

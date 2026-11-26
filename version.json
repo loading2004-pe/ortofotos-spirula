@@ -1,17 +1,17 @@
 {
- "version": "2026.11.25.12",
- "fecha": "2026-11-25 20:52",
- "notas": "Nueva pestaña «4. SuperSplat»: el editor SuperSplat dentro de la app, en una ventana propia y sin internet. Abre tus .ply (o el de la imagen elegida en 2. Revisar con «✏ Editar en SuperSplat»), los limpias, exportas el .ply a tu carpeta y la app lo detecta solo para renderizarlo.",
+ "version": "2026.11.25.13",
+ "fecha": "2026-11-25 20:59",
+ "notas": "«2. Revisar»: debajo del nombre de cada imagen se ve dónde está guardada (PNG, su carpeta «4.» y su .ply) con botones para abrir cada una en el Explorador. Si editas el .ply en SuperSplat y lo guardas encima, aparece un aviso naranja con «⟳ Re-renderizar esta».",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "0af325438656779f5f43a0348e71fc0b46fd21372365b81ca9e7ef333c14da13",
+  "app.py": "460e17e29c8415d3393e8d29c711d3f27e697611dc3a688126a03db69c567a59",
   "supersplat.py": "51a33ed48578072a88951a9c784308176d441a1b37c46105c0dc5081a85f0f14",
   "pipeline.py": "321e891238e8538b6e4e31c1f4d7cacc7749b4d886e0f214fd3ce91cace5e9ff",
   "render_ortho.py": "7e16abed098021d34b8c37b1c46e50a013db9632616fd295b734d35361421cc8",
   "ply_convert.py": "e29d25c462960717b753462300c384eff92dd355b7f30d41b68cc4ed92b7f0c4",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "22d484e6076238d0bcf76c94ff3872be08ee3847f8b67184a007e7af581e502c",
-  "app_version.py": "5f04b418cf3dff3720466f9eccf429715699307485c14435aa757043383bb5ca",
+  "app_version.py": "8c2506b712419e42a0468ac0f9bb22451cce514c47532f8a646d2b0d13e5c58b",
   "cubo.py": "22417de45bb88d046edce984c31ea2696ec142d56ef46d2061e7e86a0537fdce",
   "alinear.py": "e05331441eb02286324b67bbdf2bea08d4fce81108219def0748a440c9433136",
   "equipo.json": "f0682f5dbbdef3b3bc59f6db15b77adf04e8763484b7eac1d1be1bf89b81f0ff"

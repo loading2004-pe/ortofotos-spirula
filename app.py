@@ -232,6 +232,7 @@ class App(tk.Tk):
         elif start_root or os.path.isdir(self.root_var.get()):
             self.after(300, self.do_scan)
         self.after(60 * 1000, self._periodic_update)
+        self.after(3000, self._loc_poll)
 
     def _btn_press(self, e):
         """Activa el botón al presionar (robusto ante el escalado de pantalla)."""
@@ -712,6 +713,31 @@ class App(tk.Tk):
         self.rev_name.pack(side="left")
         self.faces_btn = ttk.Button(nm_row, text="📂 Abrir sus 6 caras", command=self._open_faces)
         self.faces_lbl = ttk.Label(nm_row, text="", foreground="#1f5fa8")
+        # dónde está guardada la imagen elegida (PNG, su carpeta «4.nombre» y su .ply)
+        self.loc_fr = ttk.Frame(right)
+        self.loc_fr.pack(fill="x", pady=(0, 4))
+        self.loc_lbl = ttk.Label(self.loc_fr, text="", foreground="#1f5fa8", cursor="hand2",
+                                 font=("Segoe UI", 9))
+        self.loc_lbl.pack(fill="x")
+        self.loc_lbl.bind("<Button-1>", lambda e: self._loc_show("png"))
+        self.loc_lbl.bind("<Configure>", lambda e: self.loc_lbl.config(wraplength=max(300, e.width - 10)))
+        lb = ttk.Frame(self.loc_fr)
+        lb.pack(fill="x", pady=(2, 0))
+        ttk.Button(lb, text="📂 Mostrar PNG en su carpeta",
+                   command=lambda: self._loc_show("png")).pack(side="left")
+        ttk.Button(lb, text="📁 Abrir su carpeta «4.»",
+                   command=lambda: self._loc_show("carpeta")).pack(side="left", padx=4)
+        ttk.Button(lb, text="🧊 Mostrar su .ply", command=lambda: self._loc_show("ply")).pack(side="left")
+        ttk.Button(lb, text="🗂 Carpeta de todas las ortofotos",
+                   command=lambda: self._loc_show("todas")).pack(side="left", padx=4)
+        make_flow(lb)
+        self.edit_fr = tk.Frame(self.loc_fr, bg="#fff4e0", highlightthickness=1, highlightbackground="#e8b96a")
+        self.edit_lbl = tk.Label(self.edit_fr, text="", bg="#fff4e0", fg="#8a4b00", anchor="w", justify="left",
+                                 font=("Segoe UI", 9, "bold"))
+        self.edit_lbl.pack(side="left", fill="x", expand=True, padx=8, pady=4)
+        ttk.Button(self.edit_fr, text="⟳ Re-renderizar esta", command=self._rerender_current).pack(
+            side="right", padx=6, pady=3)
+        self._loc = {}
         self.canvas = tk.Canvas(right, bg="#2b2b2b", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda e: self._show_current())
@@ -881,6 +907,7 @@ class App(tk.Tk):
         self.rev_name.config(text=os.path.basename(p) + ("   ⚠ " + "  ·  ".join(av) if av else ""),
                              foreground="#b26a00" if av else "black")
         self._update_faces_link(p)
+        self._update_location(p, n0)
         try:
             im = self._thumb(p).copy()
         except Exception as e:
@@ -891,6 +918,93 @@ class App(tk.Tk):
         self._img_cache = ImageTk.PhotoImage(im)
         self.canvas.create_image(cw // 2, ch // 2, image=self._img_cache)
         self._prefetch(i)
+
+    def _find_ply(self, name, d):
+        ply, _e = self._ply_for(name, d)
+        if not ply or not os.path.isfile(ply):     # la carpeta se movió o se renombró: buscar al lado
+            par = os.path.dirname(os.path.abspath(d))
+            ply = next((p_ for p_, n in pl.list_plys(par, recursive=False) if n == name), None)
+        return ply if ply and os.path.isfile(ply) else None
+
+    def _update_location(self, png, name):
+        d = os.path.dirname(os.path.abspath(png))
+        pre = str(self.cfg.get("prefijo_carpeta_png", "") or "")
+        carpeta = os.path.join(d, pre + name)
+        try:
+            ply = self._find_ply(name, d)
+        except Exception:
+            ply = None
+        self._loc = {"png": png, "carpeta": carpeta if os.path.isdir(carpeta) else None, "ply": ply,
+                     "todas": d, "name": name}
+        txt = f"📁 {os.path.normpath(png)}"
+        if self._loc["carpeta"]:
+            txt += f"   ·   carpeta: {os.path.basename(carpeta)}"
+        txt += f"\n🧊 .ply: {os.path.normpath(ply)}" if ply else "\n🧊 .ply: (no encontrado)"
+        self.loc_lbl.config(text=txt)
+        edited = False
+        try:
+            edited = bool(ply) and os.path.getmtime(ply) > os.path.getmtime(png) + 2
+        except OSError:
+            pass
+        if edited:
+            t = time.strftime("%d/%m %H:%M", time.localtime(os.path.getmtime(ply)))
+            self.edit_lbl.config(text=f"✏ Su .ply se editó/guardó después de esta ortofoto ({t}). "
+                                      "La imagen todavía es la versión anterior.")
+            self.edit_fr.pack(fill="x", pady=(4, 0))
+        else:
+            self.edit_fr.pack_forget()
+
+    def _loc_poll(self):
+        """Si guardas el .ply en SuperSplat mientras miras su imagen, el aviso aparece solo."""
+        try:
+            loc = self._loc or {}
+            if loc.get("png") and self.nb.select() == str(self.review_tab) and os.path.isfile(loc["png"]):
+                if not loc.get("ply"):
+                    self._update_location(loc["png"], loc["name"])
+                else:
+                    ed = os.path.getmtime(loc["ply"]) > os.path.getmtime(loc["png"]) + 2
+                    if ed != bool(self.edit_fr.winfo_ismapped()):
+                        self._update_location(loc["png"], loc["name"])
+        except (OSError, tk.TclError):
+            pass
+        try:
+            self.after(3000, self._loc_poll)
+        except tk.TclError:
+            pass
+
+    def _loc_show(self, what):
+        p = (self._loc or {}).get(what)
+        if not p:
+            messagebox.showinfo("Ubicación", {"carpeta": "Esta imagen no tiene carpeta «4.»; actívala en "
+                                              "«Carpeta por PNG» (Configuración).",
+                                              "ply": "No encuentro el .ply de esta imagen."}.get(
+                what, "Elige primero una imagen de la lista."))
+            return
+        if what in ("carpeta", "todas"):
+            open_path(p)
+        else:
+            show_in_folder(p)
+
+    def _rerender_current(self):
+        loc = self._loc or {}
+        ply, name, d = loc.get("ply"), loc.get("name"), loc.get("todas")
+        if not (ply and name and d):
+            messagebox.showinfo("Re-renderizar", "No encuentro el .ply de esta imagen.")
+            return
+        if self._linked_busy:
+            messagebox.showinfo("Re-renderizar", "Espera a que termine el render en marcha.")
+            return
+        self._linked_busy = True
+        self.edit_fr.pack_forget()
+        self._prog_start(1, f"Re-renderizando {name} con su .ply editado")
+        cfg = dict(self.cfg)
+        root = self.root_var.get() or None
+
+        def work():
+            pl.render_linked([(ply, name)], d, cfg, root=root, store=self._cam_store(),
+                             on_item=lambda n, st, det: self.q.put(("link", (n, st, det))))
+            self.q.put(("linkfin", d))
+        threading.Thread(target=work, daemon=True).start()
 
     def _thumb(self, p):
         """Versión reducida (1600 px) en memoria; las PNG de 7680 px tardan en abrir."""
@@ -1302,6 +1416,12 @@ class App(tk.Tk):
                    command=self._ss_render).pack(side="left")
         ttk.Button(r3, text="✏ Abrir seleccionados en SuperSplat",
                    command=lambda: self._ss_open(self._ss_selected())).pack(side="left", padx=8)
+        ttk.Button(r3, text="📂 Mostrar en su carpeta",
+                   command=lambda: [show_in_folder(p) for p in self._ss_selected()[:1]]).pack(side="left")
+        ttk.Button(r3, text="🗂 Ver sus ortofotos",
+                   command=lambda: open_path(os.path.join(self.ss_dir.get(), "ortofotos_limpias"))
+                   if os.path.isdir(os.path.join(self.ss_dir.get(), "ortofotos_limpias")) else None
+                   ).pack(side="left", padx=8)
         make_flow(r3, padx=8)
         self.ss_status = ttk.Label(f, text="", foreground="#555")
         self.ss_status.pack(anchor="w", pady=(6, 0))
@@ -2045,6 +2165,18 @@ def media_txt(j):
     if getattr(j, "images", None):
         parts.append(f"{len(j.images)} fotos")
     return " · ".join(parts) or "0"
+
+
+def show_in_folder(p):
+    """Abre el Explorador en la carpeta del archivo, con el archivo ya seleccionado."""
+    p = os.path.normpath(p)
+    if sys.platform.startswith("win"):
+        if os.path.isfile(p):
+            subprocess.Popen(["explorer", "/select,", p])
+        else:
+            os.startfile(p if os.path.isdir(p) else os.path.dirname(p))  # noqa
+    else:
+        open_path(p if os.path.isdir(p) else os.path.dirname(p))
 
 
 def open_path(p):

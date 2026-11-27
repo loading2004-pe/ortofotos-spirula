@@ -15,8 +15,8 @@ import subprocess
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FILES = ["app.py", "pipeline.py", "render_ortho.py", "ply_convert.py", "cli.py", "updater.py",
-         "app_version.py", "cubo.py"]
+FILES = ["app.py", "supersplat.py", "pipeline.py", "render_ortho.py", "ply_convert.py", "cli.py",
+         "updater.py", "app_version.py", "cubo.py", "alinear.py", "equipo.json"]
 
 
 def _k(v):

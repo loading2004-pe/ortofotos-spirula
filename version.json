@@ -1,16 +1,19 @@
 {
- "version": "2026.11.26.2",
- "fecha": "2026-11-26 19:52",
- "notas": "Convertir nube: (1) la nube para CloudCompare lleva dentro todos los datos del splat: al traerla de vuelta se rearma EXACTA sin el original, aunque la recortes en piezas y cambies nombre/carpeta. (2) Nubes sin esos datos: se reconoce sola de qué modelo salen; si no, pide el .ply PRINCIPAL UNA sola vez para todas, deduce el giro de la exportación y empareja punto a punto. (3) Cada pieza (techo, norte...) sale como su propio .ply.",
+ "version": "2026.11.26.3",
+ "fecha": "2026-11-26 19:58",
+ "notas": "Corrige la 2026.11.26.2: faltaban archivos (SuperSplat, alinear y configuración del equipo); la pestaña «4. SuperSplat» vuelve a funcionar.",
  "min_lanzador": 1,
  "archivos": {
   "app.py": "a7c0631bbaf98537b01d000019d4510f469e65dbbd125a96ed7d16017f0c0e72",
+  "supersplat.py": "51a33ed48578072a88951a9c784308176d441a1b37c46105c0dc5081a85f0f14",
   "pipeline.py": "8c721c80d71438de913cce825c80f49caa931745240a93b15a42a895dd660c6b",
   "render_ortho.py": "7e16abed098021d34b8c37b1c46e50a013db9632616fd295b734d35361421cc8",
   "ply_convert.py": "e290c8956c86115e62c8840445a46ac3f0f64abe8b93f0447963cc7ef5edb5b0",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "22d484e6076238d0bcf76c94ff3872be08ee3847f8b67184a007e7af581e502c",
-  "app_version.py": "91926c4cf1d94bacfed3dcfa5faadf4c6b8690671e6a515c0eaf0061b1aba969",
-  "cubo.py": "22417de45bb88d046edce984c31ea2696ec142d56ef46d2061e7e86a0537fdce"
+  "app_version.py": "1890c9fc5b578945790dd7282b4c62940a7b4461c3e0b610de7a68d61c44dbc8",
+  "cubo.py": "22417de45bb88d046edce984c31ea2696ec142d56ef46d2061e7e86a0537fdce",
+  "alinear.py": "e05331441eb02286324b67bbdf2bea08d4fce81108219def0748a440c9433136",
+  "equipo.json": "f0682f5dbbdef3b3bc59f6db15b77adf04e8763484b7eac1d1be1bf89b81f0ff"
  }
 }

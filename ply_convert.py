@@ -207,10 +207,27 @@ def up_rotation(splat, ups_native=None):
 # ---------------------------------------------------------------------------
 # Escritores de nube
 # ---------------------------------------------------------------------------
-def write_cloud_ply(path, xyz, rgb, ids, alpha):
+SP = "sp_"     # prefijo de los campos del splat que viajan dentro de la nube (campos escalares)
+
+
+def splat_fields(vtx):
+    """Campos del splat que se guardan dentro de la nube para poder rearmarlo sin el original:
+    posición original (sp_x, sp_y, sp_z) y todas las propiedades del splat (sp_opacity, sp_scale_0...)."""
+    out = []
+    for k in vtx.dtype.names:
+        if k in ("nx", "ny", "nz"):
+            continue
+        out.append((SP + k, np.asarray(vtx[k], np.float32)))
+    return out
+
+
+def write_cloud_ply(path, xyz, rgb, ids, alpha, fields=()):
     dt = np.dtype([("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("red", "u1"), ("green", "u1"),
-                   ("blue", "u1"), ("splat_id", "<f4"), ("opacidad", "<f4")])
+                   ("blue", "u1"), ("splat_id", "<f4"), ("opacidad", "<f4")]
+                  + [(k, "<f4") for k, _v in fields])
     a = np.zeros(len(xyz), dtype=dt)
+    for k, v in fields:
+        a[k] = v
     a["x"], a["y"], a["z"] = xyz[:, 0], xyz[:, 1], xyz[:, 2]
     a["red"], a["green"], a["blue"] = rgb[:, 0], rgb[:, 1], rgb[:, 2]
     a["splat_id"] = ids
@@ -218,8 +235,9 @@ def write_cloud_ply(path, xyz, rgb, ids, alpha):
     write_ply_struct(path, a, ["comment Ortofotos Spirula: nube desde splat (splat_id = indice)"])
 
 
-def write_cloud_las(path, xyz, rgb, ids, alpha):
-    """LAS 1.2, formato de punto 3 (XYZ + intensidad + GPS time + RGB 16 bits)."""
+def write_cloud_las(path, xyz, rgb, ids, alpha, fields=()):
+    """LAS 1.2, formato de punto 3 (XYZ + intensidad + GPS time + RGB 16 bits)
+    + campos del splat como 'extra bytes' (float32; CloudCompare los ve como campos escalares)."""
     n = len(xyz)
     mn, mx = xyz.min(0), xyz.max(0)
     ext = float(np.max(np.abs(mx - mn))) or 1.0
@@ -228,8 +246,11 @@ def write_cloud_las(path, xyz, rgb, ids, alpha):
     off = np.floor(mn / scale) * scale
     rec = np.dtype([("X", "<i4"), ("Y", "<i4"), ("Z", "<i4"), ("intensity", "<u2"),
                     ("flags", "u1"), ("cls", "u1"), ("angle", "i1"), ("user", "u1"),
-                    ("src", "<u2"), ("gps", "<f8"), ("R", "<u2"), ("G", "<u2"), ("B", "<u2")])
+                    ("src", "<u2"), ("gps", "<f8"), ("R", "<u2"), ("G", "<u2"), ("B", "<u2")]
+                   + [(k, "<f4") for k, _v in fields])
     pts = np.zeros(n, dtype=rec)
+    for k, v in fields:
+        pts[k] = v
     q = np.round((xyz - off) / scale).astype(np.int64)
     pts["X"], pts["Y"], pts["Z"] = q[:, 0], q[:, 1], q[:, 2]
     pts["intensity"] = np.clip(alpha * 65535, 0, 65535).astype(np.uint16)
@@ -238,13 +259,28 @@ def write_cloud_las(path, xyz, rgb, ids, alpha):
     pts["gps"] = ids
     c16 = rgb.astype(np.uint16) * 257
     pts["R"], pts["G"], pts["B"] = c16[:, 0], c16[:, 1], c16[:, 2]
+    vlr = b""
+    if fields:
+        desc = bytearray()
+        for k, _v in fields:
+            d = bytearray(192)
+            d[2] = 9                                   # float
+            d[4:36] = k.encode("ascii")[:32].ljust(32, b"\0")
+            d[160:192] = b"splat (Ortofotos Spirula)".ljust(32, b"\0")
+            desc += d
+        vh = bytearray(54)
+        vh[2:18] = b"LASF_Spec".ljust(16, b"\0")
+        struct.pack_into("<HH", vh, 18, 4, len(desc))
+        vh[22:54] = b"campos del splat".ljust(32, b"\0")
+        vlr = bytes(vh) + bytes(desc)
     hdr = bytearray(227)
     hdr[0:4] = b"LASF"
     hdr[24], hdr[25] = 1, 2
     hdr[26:58] = b"OrtofotosSpirula".ljust(32, b"\0")
     hdr[58:90] = b"splat a nube".ljust(32, b"\0")
     lt = time.localtime()
-    struct.pack_into("<HHHIIBHI", hdr, 90, lt.tm_yday, lt.tm_year, 227, 227, 0, 3, 34, n)
+    struct.pack_into("<HHHIIBHI", hdr, 90, lt.tm_yday, lt.tm_year, 227, 227 + len(vlr),
+                     1 if vlr else 0, 3, 34 + 4 * len(fields), n)
     rets = [n, 0, 0, 0, 0]
     struct.pack_into("<5I", hdr, 111, *rets)
     struct.pack_into("<3d3d", hdr, 131, scale, scale, scale, *off)
@@ -252,6 +288,7 @@ def write_cloud_las(path, xyz, rgb, ids, alpha):
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
         f.write(bytes(hdr))
+        f.write(vlr)
         pts.tofile(f)
     os.replace(tmp, path)
 
@@ -292,6 +329,7 @@ def read_cloud(path):
             raise ValueError("La nube no tiene puntos.")
         xyz = np.stack([v["x"], v["y"], v["z"]], 1).astype(np.float64)
         ids = None
+        campos = _campos_sp({k: v[k] for k in v.dtype.names})
         for k in v.dtype.names:
             if k.lower() in ("splat_id", "scalar_splat_id", "scalar_splat id", "splat id") or \
                     re.sub(r"[^a-z]", "", k.lower()) in ("splatid", "scalarsplatid"):
@@ -304,7 +342,7 @@ def read_cloud(path):
             step = 10.0 ** -max(_decimals_of(lines.splitlines()[1:200]), 1)
         elif v.dtype["x"].itemsize == 4:
             step = float(np.max(np.abs(xyz))) * 1.2e-7
-        return dict(xyz=xyz, ids=ids, step=step)
+        return dict(xyz=xyz, ids=ids, step=step, campos=campos, color=_color_de(v), alfa=_alfa_de(v))
     if ext == ".las":
         return _read_las(path)
     if ext == ".laz":
@@ -312,6 +350,48 @@ def read_cloud(path):
     if ext == ".e57":
         return _read_e57(path)
     return _read_ascii(path)
+
+
+def _norm_campo(k):
+    k = k.strip().lower().replace(" ", "_")
+    while k.startswith("scalar_"):
+        k = k[7:]
+    return k
+
+
+def _campos_sp(d):
+    """Campos del splat (sp_...) de una nube, con los nombres que les deja CloudCompare."""
+    out = {}
+    for k, v in d.items():
+        nk = _norm_campo(k)
+        if nk.startswith(SP):
+            out[nk] = np.asarray(v, np.float32)
+    return out
+
+
+def _color_de(v):
+    names = {_norm_campo(k): k for k in v.dtype.names}
+    for r, g, b in (("red", "green", "blue"), ("r", "g", "b"), ("diffuse_red", "diffuse_green", "diffuse_blue")):
+        if r in names and g in names and b in names:
+            c = np.stack([v[names[r]], v[names[g]], v[names[b]]], 1).astype(np.float64)
+            if c.max() > 255:
+                c = c / 257.0
+            elif c.max() <= 1.0:
+                c = c * 255.0
+            return np.clip(c, 0, 255).astype(np.uint8)
+    return None
+
+
+def _alfa_de(v):
+    names = {_norm_campo(k): k for k in v.dtype.names}
+    for k in ("opacidad", "alpha"):
+        if k in names:
+            return np.clip(np.asarray(v[names[k]], np.float64), 0, 1)
+    return None
+
+
+_EB_TYPES = {1: "u1", 2: "i1", 3: "<u2", 4: "<i2", 5: "<u4", 6: "<i4", 7: "<u8", 8: "<i8", 9: "<f4", 10: "<f8"}
+_PT_BASE = {0: 20, 1: 28, 2: 26, 3: 34, 4: 57, 5: 63, 6: 30, 7: 36, 8: 38, 9: 59, 10: 67}
 
 
 def _read_las(path):
@@ -328,6 +408,26 @@ def _read_las(path):
             n = struct.unpack_from("<Q", h, 247)[0]
         sc = struct.unpack_from("<3d", h, 131)
         of = struct.unpack_from("<3d", h, 155)
+        hsize = struct.unpack_from("<H", h, 94)[0]
+        nvlr = struct.unpack_from("<I", h, 100)[0]
+        extras = []                                   # (nombre, tipo, escala, desplazamiento)
+        f.seek(hsize)
+        for _ in range(nvlr):
+            vh = f.read(54)
+            if len(vh) < 54:
+                break
+            uid = vh[2:18].rstrip(b"\0")
+            rid, ln = struct.unpack_from("<HH", vh, 18)
+            body = f.read(ln)
+            if uid == b"LASF_Spec" and rid == 4:
+                for i in range(0, len(body) - 191, 192):
+                    d = body[i:i + 192]
+                    t = d[2]
+                    nm = d[4:36].split(b"\0")[0].decode("ascii", "replace")
+                    opt = d[3]
+                    escl = struct.unpack_from("<d", d, 112)[0] if opt & 8 else 1.0
+                    desp = struct.unpack_from("<d", d, 136)[0] if opt & 16 else 0.0
+                    extras.append((nm, t, d[160:192], escl, desp, struct.unpack_from("<H", d, 0)[0]))
         f.seek(off_pts)
         raw = np.fromfile(f, dtype=np.dtype((np.void, rlen)), count=n)
     buf = raw.view(np.uint8).reshape(-1, rlen)
@@ -340,7 +440,34 @@ def _read_las(path):
         if len(g) and np.all(np.isfinite(g)) and np.all(g >= 0) and np.allclose(g, np.round(g)) \
                 and (len(g) < 3 or np.ptp(g) > 0):
             ids = g
-    return dict(xyz=xyz, ids=ids, step=float(min(sc)))
+    # color e intensidad
+    color = alfa = None
+    rgb_at = {2: 20, 3: 28, 5: 28, 7: 30, 8: 30, 10: 30}.get(pfmt)
+    if rgb_at is not None and rlen >= rgb_at + 6:
+        c = buf[:, rgb_at:rgb_at + 6].copy().view("<u2").reshape(-1, 3).astype(np.float64)
+        if c.max() > 255:
+            c = c / 257.0
+        color = np.clip(c, 0, 255).astype(np.uint8)
+    inten = buf[:, 12:14].copy().view("<u2").ravel()
+    if inten.max() > 0:
+        alfa = inten.astype(np.float64) / 65535.0
+    # campos extra (extra bytes): aquí viajan los datos del splat
+    campos = {}
+    pos = _PT_BASE.get(pfmt, rlen)
+    for nm, t, _desc, escl, desp, _res in extras:
+        dt = _EB_TYPES.get(t)
+        if dt is None:          # tipo no estándar (p. ej. 0 = bytes sin tipo): se salta
+            break
+        size = np.dtype(dt).itemsize
+        if pos + size > rlen:
+            break
+        val = buf[:, pos:pos + size].copy().view(dt).ravel().astype(np.float64) * escl + desp
+        pos += size
+        nk = _norm_campo(nm)
+        if nk.startswith(SP):
+            campos[nk] = val.astype(np.float32)
+    return dict(xyz=xyz, ids=ids, step=float(min(sc)), campos=campos, color=color, alfa=alfa,
+                cuant=(np.array(sc, float), np.array(of, float)))
 
 
 def _read_ascii(path):
@@ -429,6 +556,73 @@ def _best_factor(cloud_xyz, orig_xyz, tol, log):
     return best
 
 
+def _match_cuantizado(cl, sxyz, srgb):
+    """Empareja cada punto de una nube LAS con SU splat: se redondean las posiciones de los splats igual
+    que el LAS (escala y desplazamiento de su cabecera) y, si varios caen en la misma celda, decide el
+    color. Devuelve (índice de splat por punto o -1, fracción emparejada)."""
+    cu = cl.get("cuant")
+    if cu is None:
+        return None, 0.0
+    sc, of = cu
+    qc = np.round((cl["xyz"] - of) / sc).astype(np.int64)
+    qs = np.round((sxyz.astype(np.float32).astype(np.float64) - of) / sc).astype(np.int64)
+    lo = np.minimum(qc.min(0), qs.min(0)) - 2
+    qc -= lo
+    qs -= lo
+    span = np.maximum(qc.max(0), qs.max(0)) + 3
+    if float(np.prod(span.astype(np.float64))) > 9.0e18:
+        return None, 0.0
+
+    def key(q):
+        return (q[:, 0] * span[1] + q[:, 1]) * span[2] + q[:, 2]
+    ks = key(qs)
+    order = np.argsort(ks, kind="stable")
+    kss = ks[order]
+    ccol = cl.get("color")
+    out = np.full(len(qc), -1, np.int64)
+    best_d = np.full(len(qc), np.inf)
+    # celda exacta y, para los que caen justo en el borde del redondeo, las celdas vecinas
+    for paso, offs in ((0, [np.zeros(3, np.int64)]), (1, list(_OFFS))):
+        sel = np.nonzero(out < 0)[0] if paso else np.arange(len(qc))
+        if not len(sel):
+            break
+        for o in offs:
+            if paso and not np.any(o):
+                continue
+            kc = key(qc[sel] + o)
+            a = np.searchsorted(kss, kc, "left")
+            b = np.searchsorted(kss, kc, "right")
+            cnt = b - a
+            m = int(cnt.max()) if len(cnt) else 0
+            for j in range(min(m, 12)):
+                has = cnt > j
+                if not has.any():
+                    break
+                ii = sel[has]
+                cand = order[a[has] + j]
+                if ccol is not None:
+                    d = np.abs(srgb[cand].astype(np.int32) - ccol[ii].astype(np.int32)).sum(1).astype(np.float64)
+                else:
+                    d = np.zeros(len(ii))
+                d += paso * 1000.0                    # se prefiere la celda exacta
+                better = d < best_d[ii]
+                out[ii[better]] = cand[better]
+                best_d[ii[better]] = d[better]
+    return out, float((out >= 0).mean())
+
+
+def _rotaciones_posibles(sp):
+    """Giros con que la app pudo exportar la nube (sin ficha no se sabe cuál fue)."""
+    rs = [np.eye(3), np.diag([1.0, -1.0, -1.0])]
+    try:
+        rs.append(up_rotation(sp, None))
+    except Exception:
+        pass
+    rs.append(_YUP_TO_NATIVE.T)
+    rs.append(_YUP_TO_NATIVE)
+    return rs
+
+
 # ---------------------------------------------------------------------------
 # Operaciones principales
 # ---------------------------------------------------------------------------
@@ -447,15 +641,16 @@ def splat_to_clouds(src, out_dir, formats=("ply", "las", "pts"), min_opacity=0.0
     stem = name or os.path.splitext(os.path.basename(src))[0]
     stem = re.sub(r"\.compressed$", "", stem, flags=re.I)
     made = []
+    campos = splat_fields(sp["vtx"][keep])     # el splat viaja dentro de la nube
     if "ply" in formats:
         p = os.path.join(out_dir, stem + ".ply")
         if os.path.abspath(p) == os.path.abspath(src):
             p = os.path.join(out_dir, stem + "_nube.ply")
-        write_cloud_ply(p, xyz_out, rgb, ids.astype(np.float32), alpha)
+        write_cloud_ply(p, xyz_out, rgb, ids.astype(np.float32), alpha, campos)
         made.append(p)
     if "las" in formats:
         p = os.path.join(out_dir, stem + ".las")
-        write_cloud_las(p, xyz_out, rgb, ids.astype(np.float64), alpha)
+        write_cloud_las(p, xyz_out, rgb, ids.astype(np.float64), alpha, campos)
         made.append(p)
     if "pts" in formats:
         p = os.path.join(out_dir, stem + ".pts")
@@ -465,12 +660,156 @@ def splat_to_clouds(src, out_dir, formats=("ply", "las", "pts"), min_opacity=0.0
            "exportados": int(len(ids)), "opacidad_min": float(min_opacity or 0),
            "rotacion": R.round(12).tolist(), "comprimido": bool(sp["compressed"]),
            "fecha": time.strftime("%Y-%m-%d %H:%M:%S"),
-           "tam_original": os.path.getsize(src), "mtime_original": os.path.getmtime(src)}
-    with open(os.path.join(out_dir, stem + REF_SUFFIX), "w", encoding="utf-8") as f:
+           "tam_original": os.path.getsize(src), "mtime_original": os.path.getmtime(src),
+           "caja": [xyz_out.min(0).round(6).tolist(), xyz_out.max(0).round(6).tolist()]}
+    ref_path = os.path.join(out_dir, stem + REF_SUFFIX)
+    with open(ref_path, "w", encoding="utf-8") as f:
         json.dump(ref, f, indent=1, ensure_ascii=False)
+    _registrar(ref_path, ref)
     log(f"{stem}: {len(ids):,} de {n:,} splats → {', '.join(os.path.basename(m) for m in made)} "
         f"({time.time() - t0:.0f} s)")
     return made
+
+
+REGISTRY = os.environ.get("ORTOFOTOS_REGISTRO")   # <datos de la app>/nubes_exportadas.json
+
+
+def _registrar(ref_path, ref):
+    """Anota cada exportación en un registro central: así se encuentra el original aunque la nube
+    editada se guarde en otra carpeta o con otro nombre."""
+    if not REGISTRY:
+        return
+    try:
+        try:
+            with open(REGISTRY, encoding="utf-8") as f:
+                reg = json.load(f)
+        except (OSError, ValueError):
+            reg = []
+        reg = [r for r in reg if r.get("ref_path") != os.path.abspath(ref_path)]
+        reg.append(dict(ref, ref_path=os.path.abspath(ref_path)))
+        tmp = REGISTRY + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(reg[-300:], f, ensure_ascii=False)
+        os.replace(tmp, REGISTRY)
+    except OSError:
+        pass
+
+
+def _caja_nube(path):
+    """Caja (min, max) de una nube: rápido con la cabecera LAS; si no, leyendo los puntos."""
+    try:
+        if path.lower().endswith(".las"):
+            with open(path, "rb") as f:
+                h = f.read(227)
+            v = struct.unpack_from("<6d", h, 179)
+            mn, mx = np.array([v[1], v[3], v[5]]), np.array([v[0], v[2], v[4]])
+            if np.all(mx >= mn) and np.any(mx > mn):
+                return mn, mx
+        xyz = read_cloud(path)["xyz"]
+        return xyz.min(0), xyz.max(0)
+    except Exception:
+        return None
+
+
+def _caja_de_ficha(ref_path, ref):
+    c = ref.get("caja")
+    if c:
+        return np.array(c[0], float), np.array(c[1], float)
+    stem = os.path.basename(ref_path)[:-len(REF_SUFFIX)]
+    for ext in (".las", ".ply", ".pts"):          # fichas antiguas: se mide la nube exportada
+        f = os.path.join(os.path.dirname(ref_path), stem + ext)
+        if os.path.isfile(f):
+            return _caja_nube(f)
+    return None
+
+
+def guess_ref(cloud_path, log=print):
+    """Si la nube editada cambió de nombre o carpeta: busca de qué exportación salió comparando su caja
+    con la de cada nube exportada (registro central + fichas en las carpetas de alrededor).
+    Devuelve (ruta_ficha, ficha) o (None, None)."""
+    caja = _caja_nube(cloud_path)
+    if caja is None:
+        return None, None
+    mn, mx = caja
+    fichas = {}
+    if REGISTRY and os.path.isfile(REGISTRY):
+        try:
+            with open(REGISTRY, encoding="utf-8") as f:
+                for r in json.load(f):
+                    if r.get("ref_path"):
+                        fichas[r["ref_path"]] = r
+        except (OSError, ValueError):
+            pass
+    d = os.path.dirname(os.path.abspath(cloud_path))
+    tops = [d]
+    for _ in range(2):
+        d2 = os.path.dirname(tops[-1])
+        if d2 and d2 != tops[-1]:
+            tops.append(d2)
+    vistos = 0
+    for top in tops[-1:]:
+        for root, dirs, files in os.walk(top):
+            if root.count(os.sep) - top.count(os.sep) >= 4:
+                dirs[:] = []
+            for f in files:
+                if f.lower().endswith(REF_SUFFIX):
+                    rp = os.path.abspath(os.path.join(root, f))
+                    if rp not in fichas:
+                        try:
+                            with open(rp, encoding="utf-8") as fh:
+                                fichas[rp] = json.load(fh)
+                        except (OSError, ValueError):
+                            pass
+                    vistos += 1
+            if vistos > 400:
+                break
+    best, bscore = None, None
+    for rp, ref in fichas.items():
+        cj = _caja_de_ficha(rp, ref)
+        if cj is None:
+            continue
+        a, b = cj
+        diag = float(np.linalg.norm(b - a)) or 1.0
+        tol = diag * 0.02
+        if np.all(mn >= a - tol) and np.all(mx <= b + tol):      # la nube editada cabe en la exportada
+            score = float(np.prod(np.maximum(b - a, 1e-9)))       # la más ajustada gana
+            if best is None or score < bscore:
+                best, bscore = (rp, ref), score
+    if best:
+        log(f"  {os.path.basename(cloud_path)}: sale de «{os.path.basename(best[0])[:-len(REF_SUFFIX)]}» "
+            "(reconocida por su posición)")
+        return best
+    return None, None
+
+
+def ref_for_original(orig):
+    """Ficha de exportación de un splat original elegido a mano (para saber con qué giro se exportó).
+    Busca en el registro y en las carpetas junto al original. Devuelve (ruta, ficha) o (None, {})."""
+    o = os.path.normcase(os.path.abspath(orig))
+    cands = []
+    if REGISTRY and os.path.isfile(REGISTRY):
+        try:
+            with open(REGISTRY, encoding="utf-8") as f:
+                cands += [r.get("ref_path") for r in json.load(f)]
+        except (OSError, ValueError):
+            pass
+    d = os.path.dirname(o)
+    for root, dirs, files in os.walk(d):
+        if root.count(os.sep) - d.count(os.sep) >= 2:
+            dirs[:] = []
+        cands += [os.path.join(root, f) for f in files if f.lower().endswith(REF_SUFFIX)]
+    for rp in reversed(cands):
+        if not rp or not os.path.isfile(rp):
+            continue
+        try:
+            with open(rp, encoding="utf-8") as f:
+                ref = json.load(f)
+        except (OSError, ValueError):
+            continue
+        ro = os.path.normcase(os.path.abspath(ref.get("original", "")))
+        if ro == o or re.split(r"[\\/]", ro)[-1] == re.split(r"[\\/]", o)[-1]:
+            return rp, ref
+    return None, {}
 
 
 def find_ref(cloud_path):
@@ -498,20 +837,110 @@ def find_ref(cloud_path):
     return best
 
 
+def es_splat(path):
+    """True si el .ply es un splat (tiene escalas/colores SH o es el comprimido de SuperSplat), no una nube."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(20000).split(b"end_header", 1)[0]
+        return (b" scale_0" in head and b" f_dc_0" in head) or b"packed_position" in head
+    except OSError:
+        return False
+
+
 def resolve_original(ref_path, ref):
-    """Ruta del splat original: la guardada o uno con el mismo nombre cerca."""
+    """Ruta del splat original: la guardada o uno con el mismo nombre cerca (que sea un splat: la nube
+    exportada suele llamarse igual)."""
     p = ref.get("original", "")
-    if p and os.path.isfile(p):
+    if p and os.path.isfile(p) and es_splat(p):
         return p
-    nm = os.path.basename(p) if p else ref.get("nombre", "") + ".ply"
+    nm = re.split(r"[\\/]", p)[-1] if p else ref.get("nombre", "") + ".ply"
     d = os.path.dirname(ref_path)
     for folder in (d, os.path.dirname(d)):
         for root, dirs, files in os.walk(folder):
-            if nm in files:
+            if nm in files and es_splat(os.path.join(root, nm)):
                 return os.path.join(root, nm)
             if root.count(os.sep) - folder.count(os.sep) >= 2:
                 dirs[:] = []
     return None
+
+
+_SPLAT_NEED = ("sp_f_dc_0", "sp_f_dc_1", "sp_f_dc_2", "sp_opacity",
+               "sp_scale_0", "sp_scale_1", "sp_scale_2", "sp_rot_0", "sp_rot_1", "sp_rot_2", "sp_rot_3")
+
+
+def has_splat_fields(cl):
+    c = cl.get("campos") or {}
+    return all(k in c for k in _SPLAT_NEED)
+
+
+def splat_from_fields(cl):
+    """Rearma el splat EXACTO con los campos que viajan en la nube (no hace falta el original)."""
+    c = cl["campos"]
+    n = len(cl["xyz"])
+    if all(k in c for k in ("sp_x", "sp_y", "sp_z")):
+        xyz = np.stack([c["sp_x"], c["sp_y"], c["sp_z"]], 1)
+    else:
+        xyz = cl["xyz"]
+    rest = sorted((k for k in c if re.fullmatch(r"sp_f_rest_\d+", k)), key=lambda k: int(k.rsplit("_", 1)[1]))
+    props = [("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("nx", "<f4"), ("ny", "<f4"), ("nz", "<f4"),
+             ("f_dc_0", "<f4"), ("f_dc_1", "<f4"), ("f_dc_2", "<f4")]
+    props += [(k[3:], "<f4") for k in rest]
+    props += [("opacity", "<f4"), ("scale_0", "<f4"), ("scale_1", "<f4"), ("scale_2", "<f4"),
+              ("rot_0", "<f4"), ("rot_1", "<f4"), ("rot_2", "<f4"), ("rot_3", "<f4")]
+    v = np.zeros(n, dtype=np.dtype(props))
+    v["x"], v["y"], v["z"] = xyz[:, 0], xyz[:, 1], xyz[:, 2]
+    for k, _t in props[6:]:
+        v[k] = c[SP + k]
+    return v
+
+
+def _espaciado(xyz):
+    """Distancia típica entre puntos vecinos, por punto (rejilla; superficies escaneadas)."""
+    n = len(xyz)
+    lo, hi = xyz.min(0), xyz.max(0)
+    diag = float(np.linalg.norm(hi - lo)) or 1.0
+    # celda tal que caigan unos 30 puntos por celda ocupada (se ajusta en 2 pasadas)
+    cell = diag / 200.0
+    for _ in range(3):
+        k = np.floor((xyz - lo) / cell).astype(np.int64)
+        key = (k[:, 0] << 42) | (k[:, 1] << 21) | k[:, 2]
+        _u, inv, cnt = np.unique(key, return_inverse=True, return_counts=True)
+        media = n / len(cnt)
+        if 15 <= media <= 60:
+            break
+        cell *= float(np.sqrt(30.0 / max(media, 1e-6)))
+    per = cnt[inv].astype(np.float64)
+    return cell / np.sqrt(np.maximum(per, 1.0))          # puntos sobre una superficie
+
+
+def splat_from_points(cl):
+    """Splat APROXIMADO desde una nube sin datos del splat: un punto = un splat redondo y plano en
+    color, del tamaño de la separación entre puntos."""
+    xyz = cl["xyz"].astype(np.float64)
+    n = len(xyz)
+    rgb = cl.get("color")
+    if rgb is None:
+        rgb = np.full((n, 3), 200, np.uint8)
+    alfa = cl.get("alfa")
+    if alfa is None or float(np.mean(alfa)) < 0.05:
+        alfa = np.full(n, 0.95)
+    alfa = np.clip(alfa, 0.02, 0.995)
+    esp = _espaciado(xyz)
+    med = float(np.median(esp)) or 1e-6
+    sig = np.maximum(np.clip(esp, 0.6 * med, 1.5 * med) * 0.7, 1e-6)   # sin manchas grandes en los bordes
+    props = [("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("nx", "<f4"), ("ny", "<f4"), ("nz", "<f4"),
+             ("f_dc_0", "<f4"), ("f_dc_1", "<f4"), ("f_dc_2", "<f4"), ("opacity", "<f4"),
+             ("scale_0", "<f4"), ("scale_1", "<f4"), ("scale_2", "<f4"),
+             ("rot_0", "<f4"), ("rot_1", "<f4"), ("rot_2", "<f4"), ("rot_3", "<f4")]
+    v = np.zeros(n, dtype=np.dtype(props))
+    v["x"], v["y"], v["z"] = xyz[:, 0], xyz[:, 1], xyz[:, 2]
+    dc = (rgb.astype(np.float64) / 255.0 - 0.5) / SH_C0
+    v["f_dc_0"], v["f_dc_1"], v["f_dc_2"] = dc[:, 0], dc[:, 1], dc[:, 2]
+    v["opacity"] = np.log(alfa / (1.0 - alfa))
+    ls = np.log(sig)
+    v["scale_0"], v["scale_1"], v["scale_2"] = ls, ls, ls
+    v["rot_0"] = 1.0
+    return v
 
 
 def cloud_to_splat(cloud_path, out_path, original=None, ref_path=None, log=print):
@@ -522,19 +951,53 @@ def cloud_to_splat(cloud_path, out_path, original=None, ref_path=None, log=print
     if ref_path:
         with open(ref_path, encoding="utf-8") as f:
             ref = json.load(f)
-    if not original:
-        original = resolve_original(ref_path, ref) if ref_path else None
-    if not original or not os.path.isfile(original):
-        raise FileNotFoundError("No encuentro el splat .ply original de esta nube.")
+    cl = read_cloud(cloud_path)
+    if not len(cl["xyz"]):
+        raise ValueError("La nube editada está vacía.")
+    sin_original = None
+    if has_splat_fields(cl):
+        sin_original = (splat_from_fields(cl), "exacto, con los datos del splat que lleva la nube")
+    else:
+        if not original:
+            original = resolve_original(ref_path, ref) if ref_path else None
+        if not original or not os.path.isfile(original):
+            sin_original = (splat_from_points(cl), "aproximado desde los puntos (la nube no trae los "
+                            "datos del splat; exporta con esta versión para que salga exacto)")
+    if sin_original:
+        out, method = sin_original
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+        write_ply_struct(out_path, out, [f"comment Ortofotos Spirula: rearmado desde {os.path.basename(cloud_path)}"])
+        res = dict(salida=out_path, original=None, total=len(out), quedan=len(out),
+                   nube=int(len(cl["xyz"])), metodo=method, transparentes=0, segundos=time.time() - t0)
+        log(f"{os.path.basename(out_path)}: {len(out):,} splats ({method}, {res['segundos']:.0f} s)")
+        return res
     if ref and ref.get("tam_original") and os.path.getsize(original) != ref["tam_original"]:
         log("  aviso: el splat original cambió desde que se exportó la nube; se intenta igual.")
     sp = load_splat(original)
     n = len(sp["xyz"])
-    R = np.array(ref.get("rotacion", np.eye(3).tolist()), float)
-    thr = float(ref.get("opacidad_min", 0.0))
-    cl = read_cloud(cloud_path)
-    if not len(cl["xyz"]):
-        raise ValueError("La nube editada está vacía.")
+    thr = float(ref.get("opacidad_min", 0.05 if not ref else 0.0))
+    if ref.get("rotacion"):
+        R = np.array(ref["rotacion"], float)
+    else:
+        # sin ficha: se prueba con qué giro se exportó (la nube se compara "de pie" o no)
+        exp0 = sp["alpha"] >= thr
+        rng = np.random.default_rng(0)
+        smp = rng.choice(len(cl["xyz"]), min(len(cl["xyz"]), 20000), replace=False)
+        sub = dict(cl, xyz=cl["xyz"][smp], color=None if cl.get("color") is None else cl["color"][smp])
+        best = (-1.0, np.eye(3))
+        diag0 = float(np.linalg.norm(sp["xyz"].max(0) - sp["xyz"].min(0))) or 1.0
+        for Rc in _rotaciones_posibles(sp):
+            sx = sp["xyz"][exp0] @ Rc.T
+            _o, frac = _match_cuantizado(sub, sx, sp["rgb"][exp0])
+            if frac < 0.5:
+                tol = max(float(cl.get("step") or 0) * 0.75, diag0 * 2e-6)
+                frac = float(near_mask(sx, sub["xyz"], tol).mean())
+            if frac > best[0]:
+                best = (frac, Rc)
+            if frac > 0.95:
+                break
+        R = best[1]
+        log(f"  giro de la exportación deducido ({best[0]:.0%} coincide)")
     xyz_file = cl["xyz"] @ R           # deshace la rotación "de pie"
     exported = sp["alpha"] >= thr if thr else np.ones(n, bool)
     diag = float(np.linalg.norm(sp["xyz"].max(0) - sp["xyz"].min(0))) or 1.0
@@ -550,6 +1013,12 @@ def cloud_to_splat(cloud_path, out_path, original=None, ref_path=None, log=print
             if np.median(chk) < diag * 1e-3:
                 keep[ii] = True
                 method = "por splat_id (exacto)"
+    if not method and cl.get("cuant") is not None:
+        idx_exp = np.nonzero(exported)[0]
+        mi, frac = _match_cuantizado(cl, sp["xyz"][idx_exp] @ R.T, sp["rgb"][idx_exp])
+        if mi is not None and frac > 0.9:
+            keep[idx_exp[mi[mi >= 0]]] = True
+            method = f"punto a punto ({frac:.1%} de la nube)"
     if not method:
         step = max(float(cl.get("step") or 0), 0.0)
         tol = max(step * 0.75, diag * 2e-6)

@@ -36,6 +36,8 @@ def _writable(d):
 DATA_DIR = APP_DIR if _writable(APP_DIR) else os.path.join(
     os.environ.get("APPDATA", os.path.expanduser("~")), "OrtofotosSpirula")
 os.makedirs(DATA_DIR, exist_ok=True)
+# registro de nubes exportadas (para reconocer de qué splat sale una nube editada guardada en otra parte)
+os.environ.setdefault("ORTOFOTOS_REGISTRO", os.path.join(DATA_DIR, "nubes_exportadas.json"))
 os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(
     os.environ.get("LOCALAPPDATA", DATA_DIR), "OrtofotosSpirula", "cache"))
 CONFIG_PATH = os.path.join(DATA_DIR, "ortofotos_config.json" if FROZEN else "config.json")
@@ -1728,11 +1730,11 @@ class App(tk.Tk):
                   ).pack(anchor="w")
         _inst = ttk.Label(f, foreground="#444", justify="left", text=(
             "1.  Elige a qué programa lo pasas y selecciona el .ply.\n"
-            "2.  CloudCompare: abre el .ply, borra lo que sobra y guárdalo (.ply o .las).\n"
-            "     ReCap: importa el .pts, borra lo que sobra y expórtalo como .pts.\n"
-            "     No muevas ni gires la nube; solo borra.\n"
-            "3.  Pulsa  «Traer de vuelta a .ply»  y elige lo que guardaste. La app reconoce sola de qué "
-            "programa viene y busca el modelo original: queda un .ply listo para Spirula, con todos sus datos.")
+            "2.  CloudCompare: abre el .ply, recorta/borra lo que sobra y guárdalo (.ply o .las), con el nombre y en la\n"
+            "     carpeta que quieras (puedes partirlo en varias piezas). La nube lleva dentro los datos del splat.\n"
+            "     ReCap: importa el .pts, borra lo que sobra y expórtalo como .pts.  No muevas ni gires la nube.\n"
+            "3.  Pulsa  «Traer de vuelta a .ply»  y elige lo que guardaste: cada pieza vuelve a ser un .ply de Spirula,\n"
+            "     sin necesitar el modelo original (si la nube no trae los datos, se arma desde sus puntos).")
                   )
         _inst.pack(anchor="w", fill="x", pady=(6, 14))
         _inst.bind("<Configure>", lambda e: _inst.config(wraplength=max(300, e.width - 10)))
@@ -1869,6 +1871,21 @@ class App(tk.Tk):
             self.q.put(("convfin", {"abrir": sorted(outs)}))
         threading.Thread(target=work, daemon=True).start()
 
+    def _conv_last_orig_dir(self):
+        """Carpeta del último splat exportado (para empezar ahí a buscar el original)."""
+        import json
+        import ply_convert as pc
+        try:
+            with open(pc.REGISTRY, encoding="utf-8") as f:
+                reg = json.load(f)
+            for r in reversed(reg):
+                d = os.path.dirname(r.get("original", ""))
+                if d and os.path.isdir(d):
+                    return d
+        except (OSError, ValueError, TypeError):
+            pass
+        return ""
+
     def _conv_to_splat(self):
         import json
         import ply_convert as pc
@@ -1880,6 +1897,7 @@ class App(tk.Tk):
             return
         self._conv_save_opts()
         tasks = []          # (nube, splatref, original, nombre)
+        sin_ref = []        # nubes sin datos del splat cuyo original no se encontró solo
         for c in self._conv_clouds:
             ref_p = pc.find_ref(c)
             ref = {}
@@ -1890,15 +1908,56 @@ class App(tk.Tk):
                 except (OSError, ValueError):
                     ref_p = None
             orig = pc.resolve_original(ref_p, ref) if ref_p else None
+            lleva_datos = False
             if not orig:
+                try:
+                    lleva_datos = pc.has_splat_fields(pc.read_cloud(c))
+                except Exception:
+                    lleva_datos = False
+            if not orig and not lleva_datos:
+                # guardada en otra carpeta o con otro nombre: se reconoce por su posición
+                g_p, g_ref = pc.guess_ref(c, log=self._conv_say)
+                if g_p:
+                    g_orig = pc.resolve_original(g_p, g_ref)
+                    if g_orig:
+                        ref_p, ref, orig = (g_p if os.path.isfile(g_p) else None), g_ref, g_orig
+            # cada pieza guardada con su propio nombre (techo, norte...) sale como su propio .ply
+            base = ref.get("nombre") or ""
+            own = pl._norm_name(c)
+            nb = pl._norm_name(base + ".x") if base else ""
+            name = base if (base and (not own or own.startswith(nb))) else (own or base or "modelo")
+            tasks.append([c, ref_p, orig, name])
+            if not orig and not lleva_datos:
+                sin_ref.append(tasks[-1])
+        if sin_ref:
+            # UNA sola pregunta para todas: el .ply principal del que salen las secciones
+            nombres = ", ".join(os.path.basename(t[0]) for t in sin_ref[:6]) + ("…" if len(sin_ref) > 6 else "")
+            messagebox.showinfo(
+                "Modelo principal",
+                f"{len(sin_ref)} nube(s) ({nombres}) no traen los datos del splat.\n\n"
+                "En la ventana que sigue ABRE el .ply PRINCIPAL del que salieron (el modelo de Spirula/"
+                "SuperSplat que pasaste a CloudCompare). Se usa para todas.\n\n"
+                "Si cancelas, se arman desde los puntos (calidad menor).")
+            orig = filedialog.askopenfilename(
+                title="Abre el .ply PRINCIPAL (se usa para todas las secciones)",
+                initialdir=self._conv_last_orig_dir() or os.path.dirname(sin_ref[0][0]),
+                filetypes=[("PLY", "*.ply")])
+            while orig and not pc.es_splat(orig):
+                messagebox.showwarning(
+                    "Modelo principal",
+                    f"«{os.path.basename(orig)}» es una NUBE (la exportada para CloudCompare), no el modelo.\n\n"
+                    "Elige el .ply del modelo de Spirula/SuperSplat (suele estar una carpeta más arriba).")
                 orig = filedialog.askopenfilename(
-                    title=f"Splat .ply original de «{os.path.basename(c)}»",
-                    filetypes=[("PLY", "*.ply")])
-                if not orig:
-                    self._conv_say(f"Omitido {os.path.basename(c)}: sin splat original.")
-                    continue
-            name = ref.get("nombre") or pl._norm_name(c) or "modelo"
-            tasks.append((c, ref_p, orig, name))
+                    title="Abre el .ply PRINCIPAL (el modelo, no la nube)",
+                    initialdir=os.path.dirname(os.path.dirname(orig)), filetypes=[("PLY", "*.ply")])
+            if orig:
+                ref_p, ref = pc.ref_for_original(orig)
+                for t in sin_ref:
+                    t[1], t[2] = ref_p, orig
+                self._conv_say(f"Modelo principal: {os.path.basename(orig)} (para {len(sin_ref)} nube(s))")
+            else:
+                self._conv_say("Sin modelo principal: las nubes sin datos se arman desde sus puntos.")
+        tasks = [tuple(t) for t in tasks]
         if not tasks:
             return
         latest = {}         # varias nubes con el mismo nombre: la modificada más recientemente
@@ -1921,13 +1980,17 @@ class App(tk.Tk):
                 try:
                     out_dir = out_user or os.path.join(os.path.dirname(c), "ply_desde_nube")
                     out = os.path.join(out_dir, name + ".ply")
-                    if os.path.abspath(out) in (os.path.abspath(c), os.path.abspath(orig)):
+                    if os.path.abspath(out) in (os.path.abspath(c), os.path.abspath(orig or c)):
                         out = os.path.join(out_dir, name + "_splat.ply")
                     pc.cloud_to_splat(c, out, original=orig, ref_path=ref_p, log=self._conv_say)
-                    stem = os.path.splitext(os.path.basename(orig))[0]
-                    for cam in (os.path.join(os.path.dirname(orig), stem + ".cam.json"),
-                                os.path.join(os.path.dirname(orig), name + ".cam.json")):
-                        if os.path.isfile(cam):
+                    cams = [os.path.join(os.path.dirname(c), name + ".cam.json")]
+                    if orig:
+                        stem = os.path.splitext(os.path.basename(orig))[0]
+                        cams = [os.path.join(os.path.dirname(orig), stem + ".cam.json"),
+                                os.path.join(os.path.dirname(orig), name + ".cam.json")] + cams
+                    for cam in cams:
+                        if os.path.isfile(cam) and os.path.abspath(cam) != os.path.abspath(
+                                os.path.join(out_dir, name + ".cam.json")):
                             shutil.copy2(cam, os.path.join(out_dir, name + ".cam.json"))
                             break
                     if to_clean and root:

@@ -787,6 +787,24 @@ def wide_tilt(img):
     return -float(0.5 * (e[j] + e[j + 1]))
 
 
+_SNAP_DEG = 4.0
+
+
+def _snap_axis(v, deg=_SNAP_DEG):
+    """Eje del modelo (±X/±Y/±Z) si 'v' está a menos de 'deg' grados de él; si no, None."""
+    v = np.asarray(v, float)
+    n = float(np.linalg.norm(v))
+    if n < 1e-9:
+        return None
+    v = v / n
+    i = int(np.argmax(np.abs(v)))
+    if abs(v[i]) < math.cos(math.radians(deg)):
+        return None
+    e = np.zeros(3)
+    e[i] = 1.0 if v[i] > 0 else -1.0
+    return e
+
+
 def ambiente_cams(parts, margin=0.04, progress=None, read=None, exterior=False):
     """Prepara un ambiente por partes: {'models', 'cams': {nombre: (OrthoCam, recorte)}, 'roles'}.
     exterior=True: las caras se miran desde AFUERA (objeto recortado en caras: teatina, caseta...);
@@ -864,6 +882,16 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None, exterior=False):
     else:
         an = analyze(merged, None, None)
     up, d0, d1 = (np.array(an[k], float) for k in ("up", "d0", "d1"))
+    # como la «alineación automática» de Spirula: si el modelo ya está a escuadra con sus ejes
+    # (vertical y paredes casi sobre X/Y/Z), se usan los ejes exactos -> caras 100 % rectas
+    snapped = False
+    su = _snap_axis(up)
+    if su is not None:
+        s0 = _snap_axis(d0 - (d0 @ su) * su)
+        if s0 is not None and abs(float(s0 @ su)) < 1e-6:
+            s1 = np.cross(su, s0)
+            s1 = s1 if s1 @ d1 > 0 else -s1
+            up, d0, d1, snapped = su, s0, s1, True
     allpts = np.vstack(list(allp.values()))
     ctr = np.median(allpts, 0)
     size = float(np.percentile(np.linalg.norm(allpts - ctr, axis=1), 95)) * 2
@@ -947,6 +975,10 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None, exterior=False):
             normal = normal if normal @ up > 0 else -normal
         elif roles[name] == "techo":         # y el techo desde abajo
             normal = normal if normal @ up < 0 else -normal
+        if snapped:                          # cara a escuadra: se mira exactamente por el eje
+            ax = D if roles[name] == "pared" else up
+            if abs(float(normal @ ax)) > math.cos(math.radians(_SNAP_DEG)):
+                normal = ax if normal @ ax > 0 else -ax
         if exterior:
             normal = -normal                                     # se mira desde afuera
         ref = up if roles[name] == "pared" else (ref_dir if roles[name] == "suelo" else -ref_dir)
@@ -961,8 +993,11 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None, exterior=False):
         v0, v1 = np.percentile(v, 0.3), np.percentile(v, 99.7)
         mu, mv = (u1 - u0) * margin, (v1 - v0) * margin
         cam = OrthoCam(bp, right, img_up, normal, (u0 - mu, u1 + mu), (v0 - mv, v1 + mv))
-        # enderezar la cara con sus propias líneas (puertas, ventanas, bordes)
+        # enderezar la cara con sus propias líneas (puertas, ventanas, bordes); si la cara quedó
+        # exactamente sobre los ejes del modelo ya está recta y no se toca
         try:
+            if snapped and abs(float(normal @ (D if roles[name] == "pared" else up))) > 0.99999:
+                raise StopIteration
             ext0 = max(u1 - u0, v1 - v0)
             pmod = preview_model(models[name], 300_000)
             fcl = (0.04 * size) / max(ext0, 1e-9)     # enderezar SOLO con la pared (sin muebles)
@@ -974,7 +1009,7 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None, exterior=False):
             ang = straighten_angle(prev)       # ajuste fino
             if abs(ang) > 0.05:
                 cam = rotate_camera(cam, ang)
-        except Exception:
+        except (Exception, StopIteration):
             pass
         # profundidad: TODO lo que el recorte trae delante de su plano (muebles, columnas…);
         # el recorte ya lo eligió el usuario, no se corta nada de él

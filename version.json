@@ -1,18 +1,18 @@
 {
- "version": "2026.11.26.4",
- "fecha": "2026-11-26 20:06",
- "notas": "Traer de vuelta a .ply: emparejamiento mucho más fiel con el modelo original (99.7-100% de los splats exactos). CloudCompare guarda los colores x256 y redondea las posiciones a 1 mm: antes muchos splats salían cambiados por su vecino o se perdían.",
+ "version": "2026.11.26.5",
+ "fecha": "2026-11-26 20:21",
+ "notas": "Secciones de un objeto exterior (techo, norte, sur, este, oeste recortadas del mismo modelo): con Tipo «Exterior · 6 caras» ahora se renderizan mirando desde AFUERA (antes siempre desde adentro como una habitación: salían borrosas y con los vidrios negros). Además, emparejamiento con el modelo original 99.7-100% exacto.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "a7c0631bbaf98537b01d000019d4510f469e65dbbd125a96ed7d16017f0c0e72",
+  "app.py": "2dc4cfc67e9df97475a0c22ba4b20ddc25622a537d71254eecaff2d0849a6e23",
   "supersplat.py": "51a33ed48578072a88951a9c784308176d441a1b37c46105c0dc5081a85f0f14",
-  "pipeline.py": "8c721c80d71438de913cce825c80f49caa931745240a93b15a42a895dd660c6b",
+  "pipeline.py": "0cdded34a09b64a7d7e63622d117c2069698de064ff3425db104f1e6c54123ef",
   "render_ortho.py": "7e16abed098021d34b8c37b1c46e50a013db9632616fd295b734d35361421cc8",
   "ply_convert.py": "2e93c5200e7a1a3115465dd30775b90c434e299feb93ee905a9306b493795baa",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "22d484e6076238d0bcf76c94ff3872be08ee3847f8b67184a007e7af581e502c",
-  "app_version.py": "37e527ecaec2ad8091b5584b91974cc320e06f1e2ae2f034f7afb34c28292ccf",
-  "cubo.py": "22417de45bb88d046edce984c31ea2696ec142d56ef46d2061e7e86a0537fdce",
+  "app_version.py": "3ece9270f167ec3d9d49127c92c2f9398b6515d293593d86bf86d6f584560f39",
+  "cubo.py": "2a1685f57867230f07038a831e781e69eced966a8a60e5ed22b013c5b2f82afd",
   "alinear.py": "e05331441eb02286324b67bbdf2bea08d4fce81108219def0748a440c9433136",
   "equipo.json": "f0682f5dbbdef3b3bc59f6db15b77adf04e8763484b7eac1d1be1bf89b81f0ff"
  }

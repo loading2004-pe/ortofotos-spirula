@@ -760,8 +760,10 @@ def wide_tilt(img):
     return -float(0.5 * (e[j] + e[j + 1]))
 
 
-def ambiente_cams(parts, margin=0.04, progress=None, read=None):
-    """Prepara un ambiente por partes: {'models', 'cams': {nombre: (OrthoCam, recorte)}, 'roles'}."""
+def ambiente_cams(parts, margin=0.04, progress=None, read=None, exterior=False):
+    """Prepara un ambiente por partes: {'models', 'cams': {nombre: (OrthoCam, recorte)}, 'roles'}.
+    exterior=True: las caras se miran desde AFUERA (objeto recortado en caras: teatina, caseta...);
+    si no, desde adentro (habitación)."""
     import render_ortho as ro
     read = read or ro.read_splat_ply
     models = {}
@@ -886,6 +888,8 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None):
             _, _, vt = np.linalg.svd(inl - c0, full_matrices=False)
             bn, bp = (vt[2] if vt[2] @ bn > 0 else -vt[2]), c0
         normal = _unit(bn if (ctr - bp) @ bn > 0 else -bn)      # hacia dentro del ambiente
+        if exterior:
+            normal = -normal                                     # se mira desde afuera
         ref = up if roles[name] == "pared" else (ref_dir if roles[name] == "suelo" else -ref_dir)
         img_up = ref - (ref @ normal) * normal
         if np.linalg.norm(img_up) < 1e-6:
@@ -948,12 +952,13 @@ def door_cams(parts, front_clip=0.12, margin=0.05, cams=None, ups=None, read=Non
 
 
 def render_ambiente(parts, out_dir, long_side=4000, background=(0, 0, 0), margin=0.04,
-                    log=print, progress=None, rots=None, read=None, ajustes=None, setup=None, only=None):
+                    log=print, progress=None, rots=None, read=None, ajustes=None, setup=None, only=None,
+                    exterior=False):
     """parts [(ply, nombre, rol)] -> guarda <out_dir>/<nombre>.png de cada parte.
     ajustes = {nombre: ajuste de la interfaz}; only = nombres a guardar. Devuelve {nombre: info}."""
     rots = rots or {}
     ajustes = ajustes or {}
-    st = setup or ambiente_cams(parts, margin, progress, read)
+    st = setup or ambiente_cams(parts, margin, progress, read, exterior=exterior)
     models, roles = st["models"], st["roles"]
     built = {n: (adjust_cam(c, ui_to_adj(ajustes.get(n), c)), cl) for n, (c, cl) in st["cams"].items()}
     infos = {}

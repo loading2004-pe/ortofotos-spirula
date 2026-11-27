@@ -1348,7 +1348,8 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
             infos = cubo.render_ambiente(parts, out_dir, long_side=int(cfg["render_lado_largo_px"]),
                                          background=tuple(cfg.get("render_fondo_color", (0, 0, 0))),
                                          margin=max(0.02, float(cfg["render_margen"])), rots=rots,
-                                         log=lambda *_: None, ajustes=ajs, read=_read)
+                                         log=lambda *_: None, ajustes=ajs, read=_read,
+                                         exterior=cfg.get("modo_render") == "exterior")
             with lock:
                 for p_, n, r in parts:
                     if n not in infos:

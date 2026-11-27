@@ -3151,7 +3151,8 @@ class AmbienteViewer(tk.Toplevel):
     def _load(self):
         import cubo
         try:
-            self.st = cubo.ambiente_cams(self.parts)
+            self.st = cubo.ambiente_cams(self.parts,
+                                         exterior=self.app.cfg.get("modo_render") == "exterior")
             self.pm = {n: cubo.preview_model(m, 300_000) for n, m in self.st["models"].items()}
         except Exception as e:
             err = f"Error: {e}"

@@ -270,6 +270,14 @@ def adjust_cam(cam, adj):
     if dx or dy:
         c = OrthoCam(c.origin, c.right, c.up, c.normal,
                      (c.u_range[0] + dx, c.u_range[1] + dx), (c.v_range[0] + dy, c.v_range[1] + dy))
+    rc = adj.get("recorte")       # marco libre: [izq, arriba, der, abajo] en fracciones del encuadre
+    if rc and len(rc) == 4:
+        l, t, r_, b = (float(x) for x in rc)
+        du, dv = c.u_range[1] - c.u_range[0], c.v_range[1] - c.v_range[0]
+        u0, u1 = c.u_range[0] + l * du, c.u_range[1] - r_ * du
+        v0, v1 = c.v_range[0] + b * dv, c.v_range[1] - t * dv
+        if u1 - u0 > du * 0.02 and v1 - v0 > dv * 0.02:
+            c = OrthoCam(c.origin, c.right, c.up, c.normal, (u0, u1), (v0, v1))
     return c
 
 

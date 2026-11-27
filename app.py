@@ -236,6 +236,7 @@ class App(tk.Tk):
         self._build_review(nb)
         self._build_convert(nb)
         self._build_supersplat(nb)
+        self._build_assistant(nb)
         self._build_config(nb)
         self.after(150, self._poll)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -2153,6 +2154,91 @@ class App(tk.Tk):
         self.destroy()
 
     # --------------------------------------------------------- Configuración
+    # ------------------------------------------------------ asistente (pedidos de cambios)
+    ASIS_DIR = None
+
+    def _asis_dir(self):
+        d = os.path.join(DATA_DIR, "asistente")
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def _build_assistant(self, nb):
+        f = ttk.Frame(nb, padding=14)
+        nb.add(f, text="5. Asistente")
+        ttk.Label(f, text="Asistente: pide cambios, mejoras o reporta errores", font=("Segoe UI", 13, "bold")
+                  ).pack(anchor="w")
+        ttk.Label(f, foreground="#444", justify="left", text=(
+            "Escribe con tus palabras qué quieres (p. ej. «el botón X no funciona», «agrega una opción para...»).\n"
+            "El asistente revisa los pedidos y los errores de la app cada pocas horas, corrige el programa, lo prueba\n"
+            "y publica una actualización (te saldrá «Hay una actualización disponible»). Aquí abajo verás su respuesta.\n"
+            "Los errores de la app se le envían solos (errores.log); no hace falta copiarlos.")).pack(anchor="w", pady=(4, 8))
+        self.asis_txt = tk.Text(f, height=6, wrap="word", font=("Segoe UI", 10))
+        self.asis_txt.pack(fill="x")
+        row = ttk.Frame(f)
+        row.pack(fill="x", pady=6)
+        ttk.Button(row, text="📨 Enviar pedido al asistente", command=self._asis_send).pack(side="left")
+        self.asis_urgent = tk.BooleanVar(value=False)
+        ttk.Checkbutton(row, text="Urgente (me impide trabajar)", variable=self.asis_urgent).pack(side="left", padx=10)
+        ttk.Button(row, text="Abrir carpeta del asistente", command=lambda: open_path(self._asis_dir())).pack(side="right")
+        ttk.Label(f, text="Pedidos y respuestas", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(10, 2))
+        self.asis_log = tk.Text(f, height=16, wrap="word", font=("Consolas", 9), state="disabled", bg="#fafafa")
+        self.asis_log.pack(fill="both", expand=True)
+        self._asis_refresh()
+
+    def _asis_send(self):
+        import json
+        txt = self.asis_txt.get("1.0", "end").strip()
+        if not txt:
+            messagebox.showinfo("Asistente", "Escribe primero qué necesitas.")
+            return
+        item = {"id": time.strftime("%Y%m%d-%H%M%S"), "fecha": time.strftime("%Y-%m-%d %H:%M"),
+                "app": "Ortofotos Spirula", "version": code_version(),
+                "urgente": bool(self.asis_urgent.get()), "pedido": txt, "estado": "pendiente"}
+        with open(os.path.join(self._asis_dir(), "pedidos.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(item, ensure_ascii=False) + "\n")
+        self.asis_txt.delete("1.0", "end")
+        self.asis_urgent.set(False)
+        self._asis_refresh()
+        messagebox.showinfo("Asistente", "Pedido enviado. El asistente lo revisará en su próxima ronda "
+                                         "y la respuesta aparecerá en esta pestaña.")
+
+    def _asis_refresh(self):
+        import json
+        d = self._asis_dir()
+        lines = []
+        resp = {}
+        try:
+            with open(os.path.join(d, "respuestas.jsonl"), encoding="utf-8") as fh:
+                for ln in fh:
+                    try:
+                        r = json.loads(ln)
+                        resp.setdefault(r.get("id", ""), []).append(r)
+                    except ValueError:
+                        pass
+        except OSError:
+            pass
+        try:
+            with open(os.path.join(d, "pedidos.jsonl"), encoding="utf-8") as fh:
+                peds = [json.loads(ln) for ln in fh if ln.strip()]
+        except (OSError, ValueError):
+            peds = []
+        for p_ in reversed(peds[-40:]):
+            rs = resp.get(p_.get("id", ""), [])
+            est = rs[-1].get("estado", "") if rs else "pendiente"
+            lines.append(f"[{p_.get('fecha', '')}] {'⚠ ' if p_.get('urgente') else ''}{p_.get('pedido', '')}")
+            for r in rs:
+                lines.append(f"    → {r.get('fecha', '')}  {r.get('estado', '')}: {r.get('respuesta', '')}")
+            if not rs:
+                lines.append("    → pendiente (lo verá en su próxima ronda)")
+            lines.append("")
+        for r in resp.get("", []):            # avisos generales (p. ej. errores corregidos)
+            lines.insert(0, f"Aviso {r.get('fecha', '')}: {r.get('respuesta', '')}\n")
+        self.asis_log.configure(state="normal")
+        self.asis_log.delete("1.0", "end")
+        self.asis_log.insert("1.0", "\n".join(lines) or "Aún no hay pedidos.")
+        self.asis_log.configure(state="disabled")
+        self.after(60 * 1000, self._asis_refresh)
+
     def _build_config(self, nb):
         # con barra de desplazamiento: en pantallas chicas no se pierden opciones ni botones
         holder = ttk.Frame(nb)
@@ -3103,6 +3189,9 @@ class AmbienteViewer(tk.Toplevel):
         self.face_title.pack(anchor="w")
         self.face_cv = tk.Canvas(mid, width=self.FW, height=self.FH, bg="#222", highlightthickness=0)
         self.face_cv.pack(fill="both", expand=True)
+        self._drag = None
+        self._img_box = None
+        self._frame_bind()
         strip = ttk.Frame(mid)
         strip.pack(fill="x", pady=(6, 0))
         self.cells = {}
@@ -3243,8 +3332,121 @@ class AmbienteViewer(tk.Toplevel):
             for i in range(1, 8):
                 y = y0 + im.size[1] * i / 8
                 cv.create_line(x0, y, x0 + im.size[0], y, fill="#9e9e9e", stipple="gray25")
+            self._img_box = (x0, y0, im.size[0], im.size[1])
+            self._draw_frame(x0, y0, x0 + im.size[0], y0 + im.size[1])
         if final and self._dirty:
             self._kick()
+
+    # ---- marco rojo: arrastrar bordes/esquinas para recortar, o el interior para moverlo
+    def _draw_frame(self, a, b, c, d, live=False):
+        cv = self.face_cv
+        cv.delete("marco")
+        cv.create_rectangle(a, b, c, d, outline="#ff1e1e", width=3, tags="marco",
+                            dash=(6, 3) if live else ())
+        for (x, y) in ((a, b), (c, b), (a, d), (c, d), ((a + c) / 2, b), ((a + c) / 2, d),
+                       (a, (b + d) / 2), (c, (b + d) / 2)):
+            cv.create_rectangle(x - 5, y - 5, x + 5, y + 5, fill="#ff1e1e", outline="white", tags="marco")
+
+    def _frame_bind(self):
+        cv = self.face_cv
+        cv.bind("<Motion>", self._frame_hover)
+        cv.bind("<ButtonPress-1>", self._frame_press)
+        cv.bind("<B1-Motion>", self._frame_drag)
+        cv.bind("<ButtonRelease-1>", self._frame_release)
+        cv.bind("<Double-Button-1>", lambda e: self._frame_clear())
+
+    def _frame_hit(self, x, y):
+        box = getattr(self, "_img_box", None)
+        if not box:
+            return ""
+        a, b, w, h = box
+        c, d = a + w, b + h
+        tol = 9
+        if not (a - tol <= x <= c + tol and b - tol <= y <= d + tol):
+            return ""
+        s = ""
+        if abs(y - b) <= tol:
+            s += "n"
+        elif abs(y - d) <= tol:
+            s += "s"
+        if abs(x - a) <= tol:
+            s += "w"
+        elif abs(x - c) <= tol:
+            s += "e"
+        return s or "mover"
+
+    def _frame_hover(self, e):
+        cur = {"n": "sb_v_double_arrow", "s": "sb_v_double_arrow", "e": "sb_h_double_arrow",
+               "w": "sb_h_double_arrow", "nw": "size_nw_se", "se": "size_nw_se", "ne": "size_ne_sw",
+               "sw": "size_ne_sw", "mover": "fleur"}.get(self._frame_hit(e.x, e.y), "")
+        try:
+            self.face_cv.config(cursor=cur)
+        except tk.TclError:
+            self.face_cv.config(cursor="")
+
+    def _frame_press(self, e):
+        mode = self._frame_hit(e.x, e.y)
+        if not mode:
+            self._drag = None
+            return
+        a, b, w, h = self._img_box
+        self._drag = {"mode": mode, "x": e.x, "y": e.y, "box": [a, b, a + w, b + h], "new": [a, b, a + w, b + h]}
+
+    def _frame_drag(self, e):
+        dg = getattr(self, "_drag", None)
+        if not dg:
+            return
+        a, b, c, d = dg["box"]
+        dx, dy = e.x - dg["x"], e.y - dg["y"]
+        m = dg["mode"]
+        if m == "mover":
+            a, c, b, d = a + dx, c + dx, b + dy, d + dy
+        else:
+            if "w" in m:
+                a = min(a + dx, c - 20)
+            if "e" in m:
+                c = max(c + dx, a + 20)
+            if "n" in m:
+                b = min(b + dy, d - 20)
+            if "s" in m:
+                d = max(d + dy, b + 20)
+        dg["new"] = [a, b, c, d]
+        self._draw_frame(a, b, c, d, live=True)
+
+    def _frame_release(self, e):
+        dg = getattr(self, "_drag", None)
+        self._drag = None
+        if not dg:
+            return
+        a0, b0, c0, d0 = dg["box"]
+        a, b, c, d = dg["new"]
+        w, h = max(c0 - a0, 1), max(d0 - b0, 1)
+        dl, dt, dr, db = (a - a0) / w, (b - b0) / h, (c0 - c) / w, (d0 - d) / h
+        if max(abs(dl), abs(dt), abs(dr), abs(db)) < 0.003:
+            return
+        # bordes de la imagen (que puede estar girada) -> bordes del encuadre de la cámara
+        r = self.rots.get(self.sel, 0)
+        L, T, R, B = {0: (dl, dt, dr, db), 90: (dt, dr, db, dl),
+                      180: (dr, db, dl, dt), 270: (db, dl, dt, dr)}[r]
+        adj = self.ajustes.setdefault(self.sel, {})
+        l, t, rr, bb = (float(x) for x in (adj.get("recorte") or (0, 0, 0, 0)))
+        wu, wv = 1.0 - l - rr, 1.0 - t - bb
+        nl, nr = l + L * wu, rr + R * wu
+        nt, nb = t + T * wv, bb + B * wv
+        if 1.0 - nl - nr < 0.02 or 1.0 - nt - nb < 0.02:
+            return
+        adj["recorte"] = [round(nl, 5), round(nt, 5), round(nr, 5), round(nb, 5)]
+        self.status.config(text="Marco ajustado (doble clic en la imagen = quitar el recorte). "
+                                "Pulsa «✓ Guardar y renderizar» para guardarlo.")
+        self._changed()
+
+    def _frame_clear(self):
+        adj = self.ajustes.get(self.sel)
+        if adj and adj.pop("recorte", None) is not None:
+            if not adj:
+                self.ajustes.pop(self.sel, None)
+            self._changed()
+
 
     def _thumbs(self):
         if self.st is None:
@@ -3281,8 +3483,10 @@ class AmbienteViewer(tk.Toplevel):
         self.sel = n
         rol = {"pared": "pared", "suelo": "planta / piso", "techo": "techo"}.get(self.roles[n])
         self.sel_lbl.config(text=n)
-        self.face_title.config(text=f"{n}  ({rol}, vista desde dentro del ambiente)" if rol else
-                               f"{n}  (puerta / ventana, vista de frente)")
+        lado = "vista desde afuera" if self.app.cfg.get("modo_render") == "exterior" else "vista desde dentro del ambiente"
+        self.face_title.config(text=(f"{n}  ({rol}, {lado})   ·   arrastra los bordes del marco rojo para recortar"
+                                     if rol else f"{n}  (puerta / ventana, vista de frente)   ·   "
+                                     "arrastra los bordes del marco rojo para recortar"))
         adj = self.ajustes.get(n, {})
         for key, (v, lab, unit) in self.sv.items():
             val = float(adj.get(key, 0))
@@ -3305,7 +3509,8 @@ class AmbienteViewer(tk.Toplevel):
         lab.config(text=f"{val:+.1f}{unit}")
         adj = self.ajustes.setdefault(self.sel, {})
         adj[key] = val
-        if not any(abs(float(x)) > 1e-9 for x in adj.values()):
+        if not any((any(abs(float(y)) > 1e-9 for y in x) if isinstance(x, (list, tuple)) else abs(float(x)) > 1e-9)
+                   for x in adj.values()):
             self.ajustes.pop(self.sel, None)
         self._changed()
 

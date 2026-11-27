@@ -369,16 +369,27 @@ def _campos_sp(d):
     return out
 
 
+def _color16(c):
+    """Color a 8 bits. LAS guarda 16 bits: CloudCompare multiplica por 256, otros por 257."""
+    c = np.asarray(c)
+    if c.size == 0 or float(c.max()) <= 255:
+        return np.clip(np.round(c.astype(np.float64)), 0, 255).astype(np.uint8)
+    ci = c.astype(np.int64)
+    if np.all(ci % 256 == 0):
+        return np.clip(ci // 256, 0, 255).astype(np.uint8)
+    if np.all(ci % 257 == 0):
+        return np.clip(ci // 257, 0, 255).astype(np.uint8)
+    return np.clip(np.round(ci / 257.0), 0, 255).astype(np.uint8)
+
+
 def _color_de(v):
     names = {_norm_campo(k): k for k in v.dtype.names}
     for r, g, b in (("red", "green", "blue"), ("r", "g", "b"), ("diffuse_red", "diffuse_green", "diffuse_blue")):
         if r in names and g in names and b in names:
-            c = np.stack([v[names[r]], v[names[g]], v[names[b]]], 1).astype(np.float64)
-            if c.max() > 255:
-                c = c / 257.0
-            elif c.max() <= 1.0:
-                c = c * 255.0
-            return np.clip(c, 0, 255).astype(np.uint8)
+            c = np.stack([v[names[r]], v[names[g]], v[names[b]]], 1)
+            if c.dtype.kind == "f" and float(c.max()) <= 1.0:
+                return np.clip(np.round(c.astype(np.float64) * 255.0), 0, 255).astype(np.uint8)
+            return _color16(c)
     return None
 
 
@@ -444,10 +455,7 @@ def _read_las(path):
     color = alfa = None
     rgb_at = {2: 20, 3: 28, 5: 28, 7: 30, 8: 30, 10: 30}.get(pfmt)
     if rgb_at is not None and rlen >= rgb_at + 6:
-        c = buf[:, rgb_at:rgb_at + 6].copy().view("<u2").reshape(-1, 3).astype(np.float64)
-        if c.max() > 255:
-            c = c / 257.0
-        color = np.clip(c, 0, 255).astype(np.uint8)
+        color = _color16(buf[:, rgb_at:rgb_at + 6].copy().view("<u2").reshape(-1, 3))
     inten = buf[:, 12:14].copy().view("<u2").ravel()
     if inten.max() > 0:
         alfa = inten.astype(np.float64) / 65535.0
@@ -557,9 +565,10 @@ def _best_factor(cloud_xyz, orig_xyz, tol, log):
 
 
 def _match_cuantizado(cl, sxyz, srgb):
-    """Empareja cada punto de una nube LAS con SU splat: se redondean las posiciones de los splats igual
-    que el LAS (escala y desplazamiento de su cabecera) y, si varios caen en la misma celda, decide el
-    color. Devuelve (índice de splat por punto o -1, fracción emparejada)."""
+    """Empareja cada punto de una nube LAS con SU splat. Se redondean las posiciones de los splats igual
+    que el LAS (escala y desplazamiento de su cabecera); entre los candidatos de la celda y sus vecinas
+    decide el color (CloudCompare redondea a 1 mm y varios splats caen en la misma celda) y cada splat se
+    usa una sola vez. Devuelve (índice de splat por punto o -1, fracción emparejada)."""
     cu = cl.get("cuant")
     if cu is None:
         return None, 0.0
@@ -579,35 +588,48 @@ def _match_cuantizado(cl, sxyz, srgb):
     order = np.argsort(ks, kind="stable")
     kss = ks[order]
     ccol = cl.get("color")
+    # todos los pares (punto, splat candidato) con su costo: color + distancia en celdas
+    P, S, C = [], [], []
+    for o in _OFFS:
+        kc = key(qc + o)
+        a = np.searchsorted(kss, kc, "left")
+        b = np.searchsorted(kss, kc, "right")
+        cnt = b - a
+        m = int(cnt.max()) if len(cnt) else 0
+        dist = float(np.abs(o).sum())
+        for j in range(min(m, 16)):
+            has = np.nonzero(cnt > j)[0]
+            if not len(has):
+                break
+            cand = order[a[has] + j]
+            if ccol is not None:
+                d = np.abs(srgb[cand].astype(np.int32) - ccol[has].astype(np.int32)).sum(1).astype(np.float64)
+            else:
+                d = np.zeros(len(has))
+            # el color manda; la celda exacta solo desempata
+            P.append(has); S.append(cand); C.append(d * 4.0 + dist)
     out = np.full(len(qc), -1, np.int64)
-    best_d = np.full(len(qc), np.inf)
-    # celda exacta y, para los que caen justo en el borde del redondeo, las celdas vecinas
-    for paso, offs in ((0, [np.zeros(3, np.int64)]), (1, list(_OFFS))):
-        sel = np.nonzero(out < 0)[0] if paso else np.arange(len(qc))
-        if not len(sel):
+    if not P:
+        return out, 0.0
+    P = np.concatenate(P); S = np.concatenate(S); C = np.concatenate(C)
+    # asignación ávida por costo: cada punto y cada splat una sola vez
+    o = np.lexsort((S, P, C))
+    P, S = P[o], S[o]
+    used_p = np.zeros(len(qc), bool)
+    used_s = np.zeros(len(sxyz), bool)
+    for _ in range(4):
+        # pasadas vectorizadas: en cada una, el primer par libre de cada punto y de cada splat
+        libre = ~used_p[P] & ~used_s[S]
+        if not libre.any():
             break
-        for o in offs:
-            if paso and not np.any(o):
-                continue
-            kc = key(qc[sel] + o)
-            a = np.searchsorted(kss, kc, "left")
-            b = np.searchsorted(kss, kc, "right")
-            cnt = b - a
-            m = int(cnt.max()) if len(cnt) else 0
-            for j in range(min(m, 12)):
-                has = cnt > j
-                if not has.any():
-                    break
-                ii = sel[has]
-                cand = order[a[has] + j]
-                if ccol is not None:
-                    d = np.abs(srgb[cand].astype(np.int32) - ccol[ii].astype(np.int32)).sum(1).astype(np.float64)
-                else:
-                    d = np.zeros(len(ii))
-                d += paso * 1000.0                    # se prefiere la celda exacta
-                better = d < best_d[ii]
-                out[ii[better]] = cand[better]
-                best_d[ii[better]] = d[better]
+        pp, ss = P[libre], S[libre]
+        _u, fp = np.unique(pp, return_index=True)
+        pp, ss = pp[fp], ss[fp]
+        _u, fs = np.unique(ss, return_index=True)
+        pp, ss = pp[fs], ss[fs]
+        out[pp] = ss
+        used_p[pp] = True
+        used_s[ss] = True
     return out, float((out >= 0).mean())
 
 

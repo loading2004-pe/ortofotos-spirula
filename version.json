@@ -1,17 +1,17 @@
 {
- "version": "2026.11.26.6",
- "fecha": "2026-11-26 20:36",
- "notas": "Editor de ambientes/caras: el marco rojo se ajusta con el mouse (arrastra bordes o esquinas para achicar/agrandar alto y ancho, arrastra el centro para moverlo; doble clic lo quita). Nueva pestaña «5. Asistente» para pedir cambios o reportar errores: el asistente los atiende solo y publica.",
+ "version": "2026.11.26.7",
+ "fecha": "2026-11-26 21:17",
+ "notas": "Se quita la pestaña «5. Asistente».",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "39b8f35ccf8d2312627dfa054d09984ed5ddf08aae8a73ff4cc921327cd905ad",
+  "app.py": "c3894b6d3d44349b7f04185651c93d2ff251ad413f24c5fd90d357d2f2acd309",
   "supersplat.py": "51a33ed48578072a88951a9c784308176d441a1b37c46105c0dc5081a85f0f14",
   "pipeline.py": "0cdded34a09b64a7d7e63622d117c2069698de064ff3425db104f1e6c54123ef",
   "render_ortho.py": "7e16abed098021d34b8c37b1c46e50a013db9632616fd295b734d35361421cc8",
   "ply_convert.py": "2e93c5200e7a1a3115465dd30775b90c434e299feb93ee905a9306b493795baa",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "22d484e6076238d0bcf76c94ff3872be08ee3847f8b67184a007e7af581e502c",
-  "app_version.py": "f5982ca30ab64669d104cc08928669945ed922baac09237054786a9d40ae568c",
+  "app_version.py": "3de8eafa14f4427d22b594222ff8e35479484e58a9bfd878c6fe083a6323f908",
   "cubo.py": "92d36f22f67d1b80838af76e1af87f85edb37e1eb4c494d3645f6e45f379414e",
   "alinear.py": "e05331441eb02286324b67bbdf2bea08d4fce81108219def0748a440c9433136",
   "equipo.json": "f0682f5dbbdef3b3bc59f6db15b77adf04e8763484b7eac1d1be1bf89b81f0ff"

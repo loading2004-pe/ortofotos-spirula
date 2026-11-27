@@ -236,7 +236,6 @@ class App(tk.Tk):
         self._build_review(nb)
         self._build_convert(nb)
         self._build_supersplat(nb)
-        self._build_assistant(nb)
         self._build_config(nb)
         self.after(150, self._poll)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -2154,91 +2153,6 @@ class App(tk.Tk):
         self.destroy()
 
     # --------------------------------------------------------- Configuración
-    # ------------------------------------------------------ asistente (pedidos de cambios)
-    ASIS_DIR = None
-
-    def _asis_dir(self):
-        d = os.path.join(DATA_DIR, "asistente")
-        os.makedirs(d, exist_ok=True)
-        return d
-
-    def _build_assistant(self, nb):
-        f = ttk.Frame(nb, padding=14)
-        nb.add(f, text="5. Asistente")
-        ttk.Label(f, text="Asistente: pide cambios, mejoras o reporta errores", font=("Segoe UI", 13, "bold")
-                  ).pack(anchor="w")
-        ttk.Label(f, foreground="#444", justify="left", text=(
-            "Escribe con tus palabras qué quieres (p. ej. «el botón X no funciona», «agrega una opción para...»).\n"
-            "El asistente revisa los pedidos y los errores de la app cada pocas horas, corrige el programa, lo prueba\n"
-            "y publica una actualización (te saldrá «Hay una actualización disponible»). Aquí abajo verás su respuesta.\n"
-            "Los errores de la app se le envían solos (errores.log); no hace falta copiarlos.")).pack(anchor="w", pady=(4, 8))
-        self.asis_txt = tk.Text(f, height=6, wrap="word", font=("Segoe UI", 10))
-        self.asis_txt.pack(fill="x")
-        row = ttk.Frame(f)
-        row.pack(fill="x", pady=6)
-        ttk.Button(row, text="📨 Enviar pedido al asistente", command=self._asis_send).pack(side="left")
-        self.asis_urgent = tk.BooleanVar(value=False)
-        ttk.Checkbutton(row, text="Urgente (me impide trabajar)", variable=self.asis_urgent).pack(side="left", padx=10)
-        ttk.Button(row, text="Abrir carpeta del asistente", command=lambda: open_path(self._asis_dir())).pack(side="right")
-        ttk.Label(f, text="Pedidos y respuestas", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(10, 2))
-        self.asis_log = tk.Text(f, height=16, wrap="word", font=("Consolas", 9), state="disabled", bg="#fafafa")
-        self.asis_log.pack(fill="both", expand=True)
-        self._asis_refresh()
-
-    def _asis_send(self):
-        import json
-        txt = self.asis_txt.get("1.0", "end").strip()
-        if not txt:
-            messagebox.showinfo("Asistente", "Escribe primero qué necesitas.")
-            return
-        item = {"id": time.strftime("%Y%m%d-%H%M%S"), "fecha": time.strftime("%Y-%m-%d %H:%M"),
-                "app": "Ortofotos Spirula", "version": code_version(),
-                "urgente": bool(self.asis_urgent.get()), "pedido": txt, "estado": "pendiente"}
-        with open(os.path.join(self._asis_dir(), "pedidos.jsonl"), "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(item, ensure_ascii=False) + "\n")
-        self.asis_txt.delete("1.0", "end")
-        self.asis_urgent.set(False)
-        self._asis_refresh()
-        messagebox.showinfo("Asistente", "Pedido enviado. El asistente lo revisará en su próxima ronda "
-                                         "y la respuesta aparecerá en esta pestaña.")
-
-    def _asis_refresh(self):
-        import json
-        d = self._asis_dir()
-        lines = []
-        resp = {}
-        try:
-            with open(os.path.join(d, "respuestas.jsonl"), encoding="utf-8") as fh:
-                for ln in fh:
-                    try:
-                        r = json.loads(ln)
-                        resp.setdefault(r.get("id", ""), []).append(r)
-                    except ValueError:
-                        pass
-        except OSError:
-            pass
-        try:
-            with open(os.path.join(d, "pedidos.jsonl"), encoding="utf-8") as fh:
-                peds = [json.loads(ln) for ln in fh if ln.strip()]
-        except (OSError, ValueError):
-            peds = []
-        for p_ in reversed(peds[-40:]):
-            rs = resp.get(p_.get("id", ""), [])
-            est = rs[-1].get("estado", "") if rs else "pendiente"
-            lines.append(f"[{p_.get('fecha', '')}] {'⚠ ' if p_.get('urgente') else ''}{p_.get('pedido', '')}")
-            for r in rs:
-                lines.append(f"    → {r.get('fecha', '')}  {r.get('estado', '')}: {r.get('respuesta', '')}")
-            if not rs:
-                lines.append("    → pendiente (lo verá en su próxima ronda)")
-            lines.append("")
-        for r in resp.get("", []):            # avisos generales (p. ej. errores corregidos)
-            lines.insert(0, f"Aviso {r.get('fecha', '')}: {r.get('respuesta', '')}\n")
-        self.asis_log.configure(state="normal")
-        self.asis_log.delete("1.0", "end")
-        self.asis_log.insert("1.0", "\n".join(lines) or "Aún no hay pedidos.")
-        self.asis_log.configure(state="disabled")
-        self.after(60 * 1000, self._asis_refresh)
-
     def _build_config(self, nb):
         # con barra de desplazamiento: en pantallas chicas no se pierden opciones ni botones
         holder = ttk.Frame(nb)

@@ -10,10 +10,10 @@ El usuario habla español; textos de la app y respuestas en español sencillo.
 - Publicar: `python3 publicar.py . --notas "qué cambió (para el usuario)"` y luego
   `git -c push.negotiate=true push origin HEAD:main`. Las PCs lo reciben al abrir la app («Hay una actualización»).
 - En la PC del usuario: `C:\Users\User\Desktop\OrtofotosSpirula\` (datos de la app):
-  - `asistente\pedidos.jsonl`: pedidos del usuario (pestaña «5. Asistente»): id, fecha, pedido, urgente.
+  - `asistente\pedidos.jsonl`: pedidos del usuario si existe (la pestaña «5. Asistente» se quitó a pedido del usuario el 26-11-2026; no volver a agregarla).
   - `asistente\respuestas.jsonl`: TUS respuestas, una línea JSON: {"id": <id del pedido o "" para avisos>,
     "fecha": "AAAA-MM-DD HH:MM", "estado": "hecho" | "en curso" | "necesito datos" | "no se puede", "respuesta": "..."}.
-    La pestaña las muestra sola. Responde SIEMPRE cada pedido nuevo.
+    Responde SIEMPRE cada pedido nuevo.
   - `errores.log`: errores de la app (trazas). Corrige los que se repitan o impidan trabajar.
 
 ## Reglas

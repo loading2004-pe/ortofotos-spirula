@@ -3066,7 +3066,10 @@ class AmbienteViewer(tk.Toplevel):
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.FW, self.FH = int(max(500, sw - 460)), int(max(320, sh * 0.62))
         man = pl.read_manifest(results_dir)
-        self.ajustes = {n: dict(man.get(n, {}).get("ajuste") or {}) for _p, n, _r in parts}
+        # los ajustes hechos con la detección anterior de ambientes ya no corresponden
+        self.ajustes = {n: (dict(man.get(n, {}).get("ajuste") or {})
+                            if int(man.get(n, {}).get("amb_v", 1)) >= pl.AMB_VERSION else {})
+                        for _p, n, _r in parts}
         self.ajustes = {k: v for k, v in self.ajustes.items() if v}
         self.names = [n for _p, n, _r in parts]
         self.roles = {n: r for _p, n, r in parts}
@@ -3449,7 +3452,7 @@ class AmbienteViewer(tk.Toplevel):
         rots = {}
         for p_, n, r in self.parts:
             e = man.get(n) or {"ply": p_, "flip": False, "rot": 0}
-            e.update(ambiente=self.key, rol=r)
+            e.update(ambiente=self.key, rol=r, amb_v=pl.AMB_VERSION)
             if self.ajustes.get(n):
                 e["ajuste"] = self.ajustes[n]
             else:

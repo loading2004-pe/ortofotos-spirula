@@ -560,6 +560,13 @@ _ROLE_WORDS = {      # el orden importa: «planta de techos» es techo
 _WALL = r"(caras?|lados?|pared(es)?|muros?|elev(aci[oó]n(es)?)?|fachadas?|vistas?|alzados?)"
 
 
+def named_wall(name):
+    """True si el NOMBRE dice que es una pared (lado, pared, cara, muro, elevación…): ese rol
+    es seguro y la forma no lo cambia."""
+    n = name.lower().replace("_", " ").replace("-", " ")
+    return part_role(name) == "pared" and bool(_re.search(r"\b" + _WALL + r"\b", n))
+
+
 def part_role(name):
     n = name.lower()
     for role, words in _ROLE_WORDS.items():
@@ -678,6 +685,18 @@ def find_ambientes(items, geo=None):
                 valid[k] = parts
             else:
                 left += parts
+        # partes con el mismo número de ambiente escrito distinto («LADO D 105» con «… a105»)
+        if valid and left:
+            nums = {k: set(_re.findall(r"\d+", k)) for k in valid}
+            keep = []
+            for ply, name, role in left:
+                kn = set(_re.findall(r"\d+", group_key(name) or ""))
+                hit = [k for k, ns in nums.items() if kn and kn <= ns]
+                if len(hit) == 1 and (named_wall(name) or role in ("techo", "suelo")):
+                    valid[hit[0]].append((ply, name, role))
+                else:
+                    keep.append((ply, name, role))
+            left = keep
         if len(valid) <= 1 and geo is not None:
             cand = (next(iter(valid.values())) if valid else []) + left
             if len(cand) >= 3 and left and len({c for c in (element_code(n) for _p, n, _r in cand)
@@ -804,8 +823,9 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None, exterior=False):
     merged["mip"] = False
     roles = {n: r for _p, n, r in parts}
     g = geo_roles(allp, roles, strict=False)    # completa los roles que el nombre no dice
-    if g:
-        roles.update({n: r for n, r in g["roles"].items() if roles.get(n) == "pared"})
+    if g:     # la forma solo completa roles que el nombre NO dice (un «lado …» es pared siempre)
+        roles.update({n: r for n, r in g["roles"].items()
+                      if roles.get(n) == "pared" and not named_wall(n)})
     tops = [np.median(allp[n], 0) for n in allp if roles[n] == "techo"]
     bots = [np.median(allp[n], 0) for n in allp if roles[n] == "suelo"]
     up0 = None
@@ -851,7 +871,7 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None, exterior=False):
     walls = [n for n in allp if roles[n] == "pared"]
     # referencia para la orientación de techo y planta: la primera pared (orden alfabético)
     ref_wall = sorted(walls)[0] if walls else None
-    cams = {}
+    cams, wconf, wh = {}, {}, {}
     for name in allp:
         P = allp[name]
         c = np.median(P, 0) - ctr
@@ -862,7 +882,34 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None, exterior=False):
         else:
             h = c - (c @ up) * up
             D = max(dirs, key=lambda d: float(h @ d))
+            # en ambientes largos y angostos las paredes largas quedan casi en el centro y la regla
+            # de arriba las miraba de canto: si el recorte es claramente delgado en una de las dos
+            # direcciones del ambiente (pared: poca profundidad, mucho largo), esa es su normal
+            sp = []
+            for d_ in (d0, d1):
+                t_ = P @ d_
+                sp.append(float(np.percentile(t_, 95) - np.percentile(t_, 5)))
+            hn = float(np.linalg.norm(h)) + 1e-9
+            wconf[name] = float(h @ D) / hn
+            if min(sp) < 0.35 * max(sp):
+                Dn = d0 if sp[0] < sp[1] else d1
+                D = Dn if float(h @ Dn) >= 0 else -Dn
+                wconf[name] = 10.0                     # forma inequívoca de pared
+            wh[name] = h
         cams[name] = D
+    # en un ambiente cada pared mira a un lado distinto: si dos piden el mismo, se queda la más
+    # segura y la otra toma el lado libre que mejor le corresponde
+    wl = [n for n in cams if roles[n] == "pared"]
+    if 2 <= len(wl) <= 4:
+        used = []
+        for n in sorted(wl, key=lambda n: -wconf.get(n, 0)):
+            idx = max(range(4), key=lambda i: float(cams[n] @ dirs[i]))
+            if idx in used:
+                free = [i for i in range(4) if i not in used]
+                if free:
+                    idx = max(free, key=lambda i: float(wh[n] @ dirs[i]))
+                    cams[n] = dirs[idx]
+            used.append(idx)
     ref_dir = cams[ref_wall] if ref_wall else d0
     built = {}
     rng = np.random.default_rng(0)
@@ -896,6 +943,10 @@ def ambiente_cams(parts, margin=0.04, progress=None, read=None, exterior=False):
             _, _, vt = np.linalg.svd(inl - c0, full_matrices=False)
             bn, bp = (vt[2] if vt[2] @ bn > 0 else -vt[2]), c0
         normal = _unit(bn if (ctr - bp) @ bn > 0 else -bn)      # hacia dentro del ambiente
+        if roles[name] == "suelo":           # la planta siempre se mira desde arriba
+            normal = normal if normal @ up > 0 else -normal
+        elif roles[name] == "techo":         # y el techo desde abajo
+            normal = normal if normal @ up < 0 else -normal
         if exterior:
             normal = -normal                                     # se mira desde afuera
         ref = up if roles[name] == "pared" else (ref_dir if roles[name] == "suelo" else -ref_dir)

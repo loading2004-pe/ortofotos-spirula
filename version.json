@@ -1,18 +1,18 @@
 {
- "version": "2026.11.26.7",
- "fecha": "2026-11-26 21:17",
- "notas": "Se quita la pestaña «5. Asistente».",
+ "version": "2026.11.27.1",
+ "fecha": "2026-11-27 14:44",
+ "notas": "Ambientes por partes (Interior · 6 caras): (1) un archivo llamado «lado/pared/cara…» siempre es pared; antes la forma podía cambiarlo a «suelo» en modelos con la vertical en Z y la pared salía de canto. (2) Ambientes largos y angostos: las paredes largas se reconocen por su forma (delgadas y largas) y cada pared mira a un lado distinto. (3) Planta siempre vista desde arriba y techo desde abajo. (4) «LADO D 105» se une al ambiente «a105» (mismo número escrito distinto). Los giros/ajustes manuales hechos con la detección anterior se descartan una vez. Añadido A105 a las pruebas automáticas.",
  "min_lanzador": 1,
  "archivos": {
-  "app.py": "c3894b6d3d44349b7f04185651c93d2ff251ad413f24c5fd90d357d2f2acd309",
+  "app.py": "7e7dfa0e1a672224579ae0054483d3f6e7b06fb36693d65eec6d6973e9b979e1",
   "supersplat.py": "51a33ed48578072a88951a9c784308176d441a1b37c46105c0dc5081a85f0f14",
-  "pipeline.py": "0cdded34a09b64a7d7e63622d117c2069698de064ff3425db104f1e6c54123ef",
+  "pipeline.py": "73436fbf0c42de006f70091dea14e6d43216fbc805dfa4af1a0dfefe02ad0950",
   "render_ortho.py": "7e16abed098021d34b8c37b1c46e50a013db9632616fd295b734d35361421cc8",
   "ply_convert.py": "2e93c5200e7a1a3115465dd30775b90c434e299feb93ee905a9306b493795baa",
   "cli.py": "dd0b782fa6f73c349991710c1c9f567e10893e1f1da0dad8022be750df238c22",
   "updater.py": "22d484e6076238d0bcf76c94ff3872be08ee3847f8b67184a007e7af581e502c",
-  "app_version.py": "3de8eafa14f4427d22b594222ff8e35479484e58a9bfd878c6fe083a6323f908",
-  "cubo.py": "92d36f22f67d1b80838af76e1af87f85edb37e1eb4c494d3645f6e45f379414e",
+  "app_version.py": "d8c8e91d6c825177b72b3f0640ae2bd9ee6f65507a6d36f0ca4873c4ad9f1bd1",
+  "cubo.py": "983466ce02d04d3e3538f7c3288391ef233be3cb218794c2526c3b775c928605",
   "alinear.py": "e05331441eb02286324b67bbdf2bea08d4fce81108219def0748a440c9433136",
   "equipo.json": "f0682f5dbbdef3b3bc59f6db15b77adf04e8763484b7eac1d1be1bf89b81f0ff"
  }

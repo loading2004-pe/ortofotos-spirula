@@ -81,6 +81,10 @@ def team_config():
         return {}
 
 
+# versión de la detección de ambientes: los ajustes guardados con una versión anterior se descartan
+AMB_VERSION = 2
+
+
 def train_quality_args(cfg, extra=()):
     """Opciones de calidad del entrenamiento de Spirula (receta del especialista): máximo de
     splats (--cap-max), grado SH (--sh-degree) y corrección de calibración (--calib-correction).
@@ -1338,13 +1342,17 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
             on_item(n, "renderizando", "ambiente por partes")
         t = time.time()
         try:
-            rots = {n: int(man.get(n, {}).get("rot", 0)) for _p, n, _r in parts}
+            # giros/ajustes hechos a mano con la detección anterior de ambientes ya no sirven
+            # (corregían caras mal orientadas que ahora salen bien): se descartan una vez
+            vig = {n for _p, n, _r in parts if int(man.get(n, {}).get("amb_v", 1)) >= AMB_VERSION}
+            rots = {n: int(man.get(n, {}).get("rot", 0)) if n in vig else 0 for _p, n, _r in parts}
             for _p, n, _r in parts:
                 for old in (os.path.join(out_dir, n + ".png"), os.path.join(out_dir, "x_" + n + ".png")):
                     if os.path.exists(old):
                         os.remove(old)
                 shutil.rmtree(cubo.faces_dir(out_dir, n), ignore_errors=True)   # restos de «6 caras»
-            ajs = {n: man.get(n, {}).get("ajuste") for _p, n, _r in parts if man.get(n, {}).get("ajuste")}
+            ajs = {n: man.get(n, {}).get("ajuste") for _p, n, _r in parts
+                   if man.get(n, {}).get("ajuste") and n in vig}
             infos = cubo.render_ambiente(parts, out_dir, long_side=int(cfg["render_lado_largo_px"]),
                                          background=tuple(cfg.get("render_fondo_color", (0, 0, 0))),
                                          margin=max(0.02, float(cfg["render_margen"])), rots=rots,
@@ -1354,7 +1362,8 @@ def render_linked(items, out_dir, cfg, root=None, store=None, on_item=None, canc
                 for p_, n, r in parts:
                     if n not in infos:
                         continue
-                    man[n] = {"ply": p_, "flip": False, "rot": rots.get(n, 0), "ambiente": key, "rol": r}
+                    man[n] = {"ply": p_, "flip": False, "rot": rots.get(n, 0), "ambiente": key, "rol": r,
+                              "amb_v": AMB_VERSION}
                     if ajs.get(n):
                         man[n]["ajuste"] = ajs[n]
                 write_manifest(out_dir, man)
